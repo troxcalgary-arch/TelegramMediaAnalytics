@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+</head>
+<body>
+    <!-- Loading overlay (spinner) -->
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">Подключение...</div>
+    </div>
+
+    <!-- Download progress overlay -->
+    <div id="downloadOverlay" class="download-overlay" style="display:none;">
+        <div class="download-panel">
+            <div class="loading-spinner"></div>
+            <div class="download-title" id="downloadTitle">Скачивание файлов...</div>
+            <div class="download-progress-bar-wrap">
+                <div class="download-progress-bar" id="downloadProgressBar"></div>
+            </div>
+            <div class="download-progress-text" id="downloadProgressText">0 / 0</div>
+            <div class="download-percent" id="downloadPercent">0%</div>
+        </div>
+    </div>
+
+    <!-- Error modal -->
+    <div id="errorModal" class="error-modal" style="display:none;">
+        <div class="error-modal-content">
+            <div class="error-modal-header">❌ Ошибка</div>
+            <div class="error-modal-body">
+                <pre id="errorDetail"></pre>
+            </div>
+            <div class="error-modal-footer">
+                <button type="button" id="errorModalClose" class="btn-primary">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <h1 style="font-size:1.6em; margin-bottom:20px; color:white; text-shadow:0 2px 8px rgba(0,0,0,0.5);">📊 Telegram Analytics</h1>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <section class="card">
+                <h2>Подключение к Telegram</h2>
+                <div id="connectStatus" class="status" style="display:none;"></div>
+                <form id="connectForm">
+                    <div class="form-group">
+                        <label>API ID:</label>
+                        <input type="number" name="api_id" id="api_id" required placeholder="1234567">
+                    </div>
+                    <div class="form-group">
+                        <label>API Hash:</label>
+                        <input type="text" name="api_hash" id="api_hash" required placeholder="0123456789abcdef...">
+                    </div>
+                    <div class="form-group">
+                        <label>Телефон (+7):</label>
+                        <input type="tel" name="phone" id="phone" required placeholder="+799****4567">
+                    </div>
+                    <button type="button" id="connectBtn" class="btn-primary" style="width:100%;">🔐 Подключиться</button>
+                    <button type="submit" id="saveConfigBtn" style="width:100%; margin-top:8px;">💾 Сохранить конфигурацию</button>
+                </form>
+
+                <!-- Auth code step -->
+                <div id="authCodeStep" style="display:none; margin-top: 15px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                    <h3>📱 Введите код из Telegram</h3>
+                    <div class="form-group">
+                        <label>Код подтверждения:</label>
+                        <input type="text" name="auth_code" id="auth_code" placeholder="12345" maxlength="5" style="letter-spacing: 4px; text-align: center; font-size: 18px;">
+                    </div>
+                    <button type="button" id="verifyCodeBtn" class="btn-primary" style="width:100%;">✅ Подтвердить код</button>
+                    <button type="button" id="cancelAuthBtn" style="width:100%; margin-top:8px;">Отмена</button>
+                </div>
+
+                <!-- 2FA password step -->
+                <div id="twoFAStep" style="display:none; margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                    <h3>🔐 Двухфакторная аутентификация</h3>
+                    <div class="form-group">
+                        <label>Пароль 2FA:</label>
+                        <input type="password" name="twofa_password" id="twofa_password" placeholder="Ваш пароль 2FA">
+                    </div>
+                    <button type="button" id="verify2FABtn" class="btn-primary" style="width:100%;">✅ Войти с 2FA</button>
+                    <button type="button" id="cancel2FABtn" style="width:100%; margin-top:8px;">Отмена</button>
+                </div>
+
+                <div id="authSuccess" style="display:none; margin-top: 15px; padding: 15px; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb; color: #155724;">
+                    <h3>✅ Успешно авторизован!</h3>
+                    <p style="font-size:13px;">Теперь можно сканировать каналы и скачивать медиа.</p>
+                    <button type="button" id="logoutBtn" style="background: #dc3545; color: white; width:100%; margin-top:8px;">🚪 Выйти</button>
+                </div>
+            </section>
+
+            <!-- Scan history sidebar -->
+            <section class="card" style="margin-top: 15px;">
+                <h2 style="font-size:1.1em;">📋 История сканирований</h2>
+                <div id="scanHistorySidebar" style="font-size:13px;">
+                    <p style="color:#999;">Загрузка...</p>
+                </div>
+                <a href="/telegram/history" target="_blank" style="display:block; margin-top:10px; font-size:12px; color:#667eea; text-decoration:none;">Посмотреть историю →</a>
+            </section>
+        </aside>
+
+        <!-- Main content -->
+        <main class="main-content">
+        
+        <!-- Сканирование канала -->
+        <section class="card">
+            <h2>Сканирование канала</h2>
+            <div id="scanStatus" class="status" style="display:none;"></div>
+            <form id="scanForm">
+                <div class="form-group">
+                    <label>ID канала или @username:</label>
+                    <input type="text" name="channel_id" id="channel_id" required value="-1001911644885" placeholder="@ourpover или -1001234567890">
+                </div>
+                
+                <div class="form-group">
+                    <label>Тип медиа:</label>
+                    <select name="media_type" id="media_type">
+                        <option value="all">Все медиа</option>
+                        <option value="video">Видео</option>
+                        <option value="audio">Аудио / Голосовые</option>
+                        <option value="photo">Фото</option>
+                        <option value="document">Документы</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Период (дней) или диапазон дат:</label>
+                    <input type="number" name="days" id="days" placeholder="7, 30, 90, 365..." min="1">
+                    <small>Количество дней назад от сегодня. Оставьте пустым для всех сообщений.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Или выберите диапазон дат (альтернатива):</label>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input type="text" id="dateRange" placeholder="Выберите диапазон дат..." style="flex:1;">
+                        <button type="button" id="clearDateRange" style="padding:8px 10px; font-size:13px; background:#e74c3c; min-width:auto;">✕</button>
+                    </div>
+                    <small>Если выбрать диапазон — поле "Период" будет игнорироваться</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Лимит сообщений:</label>
+                    <input type="number" name="limit" id="limit" value="0" min="0" max="100000">
+                    <small>0 = без лимита (все сообщения)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Папка для скачивания:</label>
+                    <div class="folder-row">
+                        <input type="text" name="download_path" id="download_path" placeholder="Выберите папку..." readonly>
+                        <button type="button" id="pickFolderBtn">📁 Выбрать папку</button>
+                    </div>
+                    <small>Опционально - только для скачивания файлов. Кнопка использует системный диалог выбора папки.</small>
+                </div>
+                
+                <!-- Download settings (anti-flood protection) -->
+                <div class="form-group">
+                    <label>Настройки скачивания (защита от бана):</label>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px;">
+                        <div class="filter-group" style="min-width: 180px;">
+                            <label for="delay_min">Мин. задержка (сек):</label>
+                            <input type="number" name="delay_min" id="delay_min" value="2" min="0.5" max="30" step="0.5" style="width: 100%;">
+                        </div>
+                        <div class="filter-group" style="min-width: 180px;">
+                            <label for="delay_max">Макс. задержка (сек):</label>
+                            <input type="number" name="delay_max" id="delay_max" value="5" min="1" max="60" step="0.5" style="width: 100%;">
+                        </div>
+                        <div class="filter-group" style="min-width: 180px; align-self: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+                                <input type="checkbox" name="skip_existing" id="skip_existing" checked style="width: auto;">
+                                <span>Пропускать существующие файлы</span>
+                            </label>
+                        </div>
+                    </div>
+                    <small style="margin-top: 8px; display: block; color: #c0392b; font-weight: bold;">
+                        Рекомендуется: мин 2 сек, макс 5 сек. Случайная задержка между файлами защищает от FloodWait. 
+                        При больших объёмах увеличьте до 5-10 сек.
+                    </small>
+                </div>
+                
+                <button type="submit">Запустить сканирование</button>
+            </form>
+        </section>
+        
+        <!-- Статистика по авторам -->
+        <section class="card">
+            <h2>📈 Статистика по авторам</h2>
+            <div id="statsStatus" class="status" style="display:none;"></div>
+            
+            <!-- Stats filters -->
+            <div class="filters-bar" style="margin-bottom: 15px;">
+                <div class="filter-group">
+                    <label for="statsUsername">Username:</label>
+                    <input type="text" id="statsUsername" placeholder="@username или имя...">
+                </div>
+                <div class="filter-group">
+                    <label for="statsSortBy">Сортировка:</label>
+                    <select id="statsSortBy">
+                        <option value="count_desc">По кол-ву видео (↓)</option>
+                        <option value="count_asc">По кол-ву видео (↑)</option>
+                        <option value="size_desc">По размеру (↓)</option>
+                        <option value="size_asc">По размеру (↑)</option>
+                        <option value="date_desc">По последней загрузке (↓)</option>
+                        <option value="date_asc">По последней загрузке (↑)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="statsRowsPerPage">Строк на странице:</label>
+                    <select id="statsRowsPerPage">
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <button id="loadStatsBtn" class="btn-primary">Загрузить статистику</button>
+            </div>
+            
+            <div id="statsTableContainer">
+                <p class="placeholder">Нажмите «Загрузить статистику» для получения данных по авторам...</p>
+            </div>
+            
+            <!-- Pagination for stats -->
+            <div id="statsPagination" style="display:none; margin-top: 15px;">
+                <button id="statsPrevPage" disabled>← Назад</button>
+                <span id="statsPageInfo"></span>
+                <button id="statsNextPage" disabled>Вперёд →</button>
+            </div>
+        </section>
+        
+        <!-- Результаты с фильтрами -->
+        <section class="card">
+            <h2>Результаты</h2>
+            
+            <!-- Filters bar -->
+            <div class="filters-bar">
+                <div class="filter-group">
+                    <label for="filterUsername">Username:</label>
+                    <input type="text" id="filterUsername" placeholder="@username или имя...">
+                </div>
+                <div class="filter-group">
+                    <label for="filterDateFrom">Дата от:</label>
+                    <input type="date" id="filterDateFrom">
+                </div>
+                <div class="filter-group">
+                    <label for="filterDateTo">Дата до:</label>
+                    <input type="date" id="filterDateTo">
+                </div>
+                <div class="filter-group">
+                    <label for="rowsPerPage">Строк на странице:</label>
+                    <select id="rowsPerPage">
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="sortBy">Сортировка:</label>
+                    <select id="sortBy">
+                        <option value="date_desc">Дата (новые сначала)</option>
+                        <option value="date_asc">Дата (старые сначала)</option>
+                        <option value="duration_desc">Длительность (длинные сначала)</option>
+                        <option value="duration_asc">Длительность (короткие сначала)</option>
+                        <option value="size_desc">Размер (большие сначала)</option>
+                        <option value="size_asc">Размер (маленькие сначала)</option>
+                    </select>
+                </div>
+                <button id="applyFiltersBtn" class="btn-primary">Применить фильтры</button>
+            </div>
+            
+            <div id="results">
+                <p class="placeholder">Здесь будут отображаться результаты сканирования...</p>
+            </div>
+            
+            <!-- Pagination -->
+            <div id="pagination" style="display:none;">
+                <button id="prevPage" disabled>← Назад</button>
+                <span id="pageInfo"></span>
+                <button id="nextPage" disabled>Вперёд →</button>
+            </div>
+            
+            <!-- Download section -->
+            <div id="downloadSection" style="display:none;">
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+                <button id="downloadBtn" style="background: #28a745;">📥 Скачать файлы в выбранную папку</button>
+            </div>
+        </section>
+        </main>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

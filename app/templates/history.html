@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>История сканирований — Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body { padding: 30px; }
+        .history-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 20px; }
+        .history-table th, .history-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; }
+        .history-table th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; }
+        .history-table tr:hover { background: #f5f5f5; }
+        .empty { text-align: center; color: #999; padding: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="color:white; text-shadow:0 2px 8px rgba(0,0,0,0.5);">📋 История сканирований</h1>
+        <div class="card">
+            <div id="historyContent"><p class="placeholder">Загрузка...</p></div>
+        </div>
+    </div>
+    <script>
+    async function loadHistory() {
+        try {
+            const res = await fetch('/telegram/api/scan-history/all');
+            const data = await res.json();
+            const history = data.history || [];
+            const el = document.getElementById('historyContent');
+            if (history.length === 0) {
+                el.innerHTML = '<p class="empty">Нет записей</p>';
+                return;
+            }
+            let html = '<div class="table-container"><table class="history-table"><thead><tr>';
+            html += '<th>#</th><th>Дата и время</th><th>Канал</th><th>Тип медиа</th><th>Сообщений</th><th>Авторов</th><th>Топик</th>';
+            html += '</tr></thead><tbody>';
+            history.forEach((h, i) => {
+                const dt = new Date(h.timestamp).toLocaleString('ru-RU');
+                html += '<tr>';
+                html += '<td>' + (i + 1) + '</td>';
+                html += '<td>' + dt + '</td>';
+                html += '<td>' + (h.channel_title || h.channel_id) + ' <small style="color:#999;">(' + h.channel_id + ')</small></td>';
+                html += '<td>' + (h.media_type || '-') + '</td>';
+                html += '<td>' + (h.total_messages || 0) + '</td>';
+                html += '<td>' + (h.unique_authors || 0) + '</td>';
+                html += '<td>' + (h.topic_id || '-') + '</td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            el.innerHTML = html;
+        } catch (e) {
+            document.getElementById('historyContent').innerHTML = '<p class="empty">Ошибка загрузки</p>';
+        }
+    }
+    loadHistory();
+    </script>
+</body>
+</html>
