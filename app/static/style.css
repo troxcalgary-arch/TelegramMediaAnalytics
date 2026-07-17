@@ -13,7 +13,41 @@ body {
     color: #333;
 }
 
-/* Layout: sidebar + main */
+/* Layout: header + sidebar + main */
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1500px;
+    margin: 0 auto 15px;
+}
+
+.lang-switcher {
+    display: flex;
+    gap: 4px;
+}
+
+.lang-btn {
+    padding: 6px 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.lang-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.lang-btn.active {
+    background: #667eea;
+    border-color: #667eea;
+}
+
 .app-layout {
     display: flex;
     gap: 20px;

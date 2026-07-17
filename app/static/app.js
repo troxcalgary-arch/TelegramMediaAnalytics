@@ -123,6 +123,20 @@ let statsTotalPages = 1;
 
 // Initialize flatpickr for date range
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize i18n
+    i18n.init();
+
+    // Language switcher
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            i18n.lang = btn.dataset.lang;
+            // Reload page to apply all translations
+            location.reload();
+        });
+    });
+    // Set initial active state
+    document.querySelector(`.lang-btn[data-lang="${i18n.lang}"]`)?.classList.add('active');
+
     // Pre-fill from .env (served via /telegram/api/config)
     loadEnvConfig();
     
@@ -148,7 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Auth form handlers
     document.getElementById('connectBtn').addEventListener('click', handleConnect);
-    document.getElementById('saveConfigBtn').addEventListener('click', handleSaveConfig);
     document.getElementById('verifyCodeBtn').addEventListener('click', handleVerifyCode);
     document.getElementById('cancelAuthBtn').addEventListener('click', cancelAuth);
     document.getElementById('verify2FABtn').addEventListener('click', handleVerify2FA);
@@ -227,7 +240,7 @@ async function checkActiveDownloads() {
         if (tasks.length === 0) return;
         for (const t of tasks) {
             showStatus('scanStatus',
-                `⏳ Для канала «${t.channel_title}» (${t.channel_id}) сейчас в фоне выполняется скачивание — ${t.message || '...'} (${t.progress || 0}%)`
+                `⏳ ${i18n.t('status_active_download')} «${t.channel_title}» (${t.channel_id}) ${i18n.t('status_active_download_mid')} — ${t.message || '...'} (${t.progress || 0}%)`
             );
         }
     } catch (e) {
@@ -329,7 +342,7 @@ async function handleConnect() {
             // Show code input step
             document.getElementById('authCodeStep').style.display = 'block';
             document.getElementById('connectBtn').disabled = true;
-            document.getElementById('saveConfigBtn').disabled = true;
+
             document.getElementById('auth_code').focus();
             showStatus('connectStatus', '✅ Код отправлен. Проверьте Telegram (не SMS!). Введите код ниже.', false);
         } else {
@@ -438,7 +451,7 @@ async function handleVerify2FA() {
 function cancelAuth() {
     document.getElementById('authCodeStep').style.display = 'none';
     document.getElementById('connectBtn').disabled = false;
-    document.getElementById('saveConfigBtn').disabled = false;
+
     document.getElementById('auth_code').value = '';
     currentAuthSessionId = null;
     hideStatus('connectStatus');
@@ -469,7 +482,7 @@ async function handleLogout() {
         // Reset UI
         document.getElementById('authSuccess').style.display = 'none';
         document.getElementById('connectBtn').disabled = false;
-        document.getElementById('saveConfigBtn').disabled = false;
+    
         document.getElementById('auth_code').value = '';
         document.getElementById('twofa_password').value = '';
         currentAuthSessionId = null;
@@ -486,57 +499,23 @@ function showAuthSuccess(data) {
     document.getElementById('twoFAStep').style.display = 'none';
     document.getElementById('authSuccess').style.display = 'block';
     document.getElementById('connectBtn').disabled = true;
-    document.getElementById('saveConfigBtn').disabled = true;
-    
+
     const name = (data.first_name || '') + ' ' + (data.last_name || '');
     const username = data.username ? '@' + data.username : '';
     document.getElementById('authSuccess').innerHTML = `
-        <h3>✅ Успешно авторизован!</h3>
+        <h3>${i18n.t('auth_success')}</h3>
         <p><strong>${name.trim()}</strong> ${username}</p>
-        <p>Теперь можно сканировать каналы и скачивать медиа.</p>
-        <button type="button" id="logoutBtn" style="background: #dc3545; color: white;">🚪 Выйти</button>
+        <p>${i18n.t('auth_success_desc')}</p>
+        <button type="button" id="logoutBtn" style="background: #dc3545; color: white; width:100%; margin-top:8px;">${i18n.t('logout')}</button>
     `;
     // Re-attach logout handler
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
     hideStatus('connectStatus');
-    
+
     // Auto-login to get JWT token
     autoLogin(currentAuthSessionId);
 }
 
-async function handleSaveConfig(e) {
-    e.preventDefault();
-    hideStatus('connectStatus');
-    
-    const apiId = parseInt(document.getElementById('api_id').value);
-    const apiHash = document.getElementById('api_hash').value;
-    const phone = document.getElementById('phone').value;
-    
-    if (!apiId || !apiHash || !phone) {
-        showStatus('connectStatus', '❌ Заполните все поля', true);
-        return;
-    }
-    
-    try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-        
-        const res = await fetch('/telegram/api/session', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ api_id: apiId, phone_number: phone })
-        });
-        
-        if (res.ok) {
-            showStatus('connectStatus', '✅ Конфигурация сохранена. Нажмите «Подключиться» для авторизации.');
-        } else {
-            const err = await res.json();
-            showStatus('connectStatus', '❌ ' + (err.detail || 'Ошибка сохранения'), true);
-        }
-    } catch (err) {
-        showStatus('connectStatus', '❌ Ошибка сети: ' + err.message, true);
-    }
-}
 
 async function autoLogin(sessionId) {
     try {
@@ -614,12 +593,12 @@ async function handleScan(e) {
         } else {
             hideLoading();
             hideDownloadProgress();
-            showStatus('scanStatus', '❌ Ошибка запуска: ' + (task.detail || 'Unknown'), true);
+            showStatus('scanStatus', i18n.t('status_error') + ' ' + (task.detail || 'Unknown'), true);
         }
     } catch (err) {
         hideLoading();
         hideDownloadProgress();
-        showStatus('scanStatus', '❌ Ошибка сети: ' + err.message, true);
+        showStatus('scanStatus', i18n.t('status_network_error') + ' ' + err.message, true);
         showErrorModal(err.message);
     }
 }
@@ -663,7 +642,7 @@ async function pollTask(taskId) {
         }
     } catch (err) {
         hideDownloadProgress();
-        showStatus('scanStatus', '❌ Ошибка опроса: ' + err.message, true);
+        showStatus('scanStatus', i18n.t('status_poll_error') + ' ' + err.message, true);
         showErrorModal(err.message);
     }
 }
@@ -778,18 +757,23 @@ async function loadFilteredResults() {
 function renderResultsPage(data) {
     const pageData = data.videos;
     const totalPages = data.total_pages;
-    
+
     if (pageData.length === 0) {
-        document.getElementById('results').innerHTML = '<p class="placeholder">Нет данных для отображения</p>';
+        document.getElementById('results').innerHTML = '<p class="placeholder">' + i18n.t('results_placeholder') + '</p>';
         return;
     }
-    
+
     // Build table with video metadata columns
-    const columns = ['#', 'Дата', 'Автор', 'Username', 'Продолжительность', 'Размер', 'MIME', 'Топик', 'Подпись'];
+    const columns = [
+        i18n.t('col_num'), i18n.t('col_date'), i18n.t('col_author'), i18n.t('col_username'),
+        i18n.t('col_duration'), i18n.t('col_size'), i18n.t('col_mime'),
+        i18n.t('col_topic'), i18n.t('col_caption')
+    ];
     let html = '<div class="table-container"><table class="stats-table"><thead><tr>';
     columns.forEach(col => html += '<th>' + col + '</th>');
     html += '</tr></thead><tbody>';
-    
+
+    const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
     pageData.forEach((video, idx) => {
         const sender = video.sender || {};
         const v = video.video || {};
@@ -801,7 +785,7 @@ function renderResultsPage(data) {
 
         html += '<tr>';
         html += '<td>' + (data.start + idx + 1) + '</td>';
-        html += '<td>' + (video.date ? new Date(video.date).toLocaleString('ru-RU') : '-') + '</td>';
+        html += '<td>' + (video.date ? new Date(video.date).toLocaleString(locale) : '-') + '</td>';
         html += '<td>' + (fullName || '-') + '</td>';
         html += '<td>' + (sender.username ? '@' + sender.username : (sender.id ? 'ID:' + sender.id : '-')) + '</td>';
         html += '<td>' + (duration ? duration + 'с' : '-') + '</td>';
@@ -820,7 +804,7 @@ function renderResultsPage(data) {
     if (newTable) initColumnResize(newTable, 'results_col_widths');
 
     // Update pagination
-    document.getElementById('pageInfo').textContent = `Страница ${data.page} из ${totalPages} (${data.total} записей)`;
+    document.getElementById('pageInfo').textContent = `${i18n.t('pagination_page')} ${data.page} ${i18n.t('pagination_of')} ${totalPages} (${data.total} ${i18n.t('pagination_records')})`;
     document.getElementById('prevPage').disabled = data.page <= 1;
     document.getElementById('nextPage').disabled = data.page >= totalPages;
     document.getElementById('pagination').style.display = 'flex';
@@ -877,42 +861,43 @@ async function loadStats() {
 // Render statistics table with pagination info
 function renderStatsTable(data) {
     const container = document.getElementById('statsTableContainer');
-    
+
     if (!data.authors || data.authors.length === 0) {
-        container.innerHTML = '<p class="placeholder">Нет данных для отображения</p>';
+        container.innerHTML = '<p class="placeholder">' + i18n.t('results_placeholder') + '</p>';
         return;
     }
-    
+
     const startNum = data.start || 0;
-    
+
     let html = `
         <div style="margin-bottom: 10px;">
-            <strong>Всего видео:</strong> ${data.total_videos} | 
-            <strong>Уникальных авторов:</strong> ${data.total}
+            <strong>${i18n.t('stats_total_videos')}</strong> ${data.total_videos} |
+            <strong>${i18n.t('stats_unique_authors')}</strong> ${data.total}
         </div>
         <div class="table-container">
         <table class="stats-table">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>Пользователь</th>
-                    <th>Username</th>
-                    <th>Видео</th>
-                    <th>Всего MB</th>
-                    <th>Последняя загрузка</th>
+                    <th>${i18n.t('col_num')}</th>
+                    <th>${i18n.t('col_user')}</th>
+                    <th>${i18n.t('col_username')}</th>
+                    <th>${i18n.t('col_videos')}</th>
+                    <th>${i18n.t('col_total_mb')}</th>
+                    <th>${i18n.t('col_last_upload')}</th>
                 </tr>
             </thead>
             <tbody>
     `;
-    
+
+    const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
     data.authors.forEach((author, idx) => {
         const name = author.first_name || '';
         const lastName = author.last_name || '';
         const fullName = (name + ' ' + lastName).trim() || 'ID:' + author.sender_id;
-        const username = author.username ? '@' + author.username : '-'; 
+        const username = author.username ? '@' + author.username : '-';
         const totalMB = (author.total_size / (1024 * 1024)).toFixed(1);
-        const lastDate = author.last_date ? new Date(author.last_date * 1000).toLocaleString('ru-RU') : '-';
-        
+        const lastDate = author.last_date ? new Date(author.last_date * 1000).toLocaleString(locale) : '-';
+
         html += `
             <tr>
                 <td>${startNum + idx + 1}</td>
@@ -941,7 +926,7 @@ function renderStatsTable(data) {
 // Update stats pagination controls
 function updateStatsPagination(data) {
     statsTotalPages = data.total_pages || 1;
-    document.getElementById('statsPageInfo').textContent = `Страница ${data.page} из ${statsTotalPages} (${data.total} авторов)`;
+    document.getElementById('statsPageInfo').textContent = `${i18n.t('pagination_page')} ${data.page} ${i18n.t('pagination_of')} ${statsTotalPages} (${data.total} ${i18n.t('pagination_authors')})`;
     document.getElementById('statsPrevPage').disabled = data.page <= 1;
     document.getElementById('statsNextPage').disabled = data.page >= statsTotalPages;
     document.getElementById('statsPagination').style.display = statsTotalPages > 1 ? 'flex' : 'none';
@@ -1048,7 +1033,7 @@ async function handleDownload() {
         const task = await res.json();
         if (res.status === 409) {
             hideLoading();
-            showStatus('scanStatus', '⏳ ' + (task.detail || 'Скачивание уже выполняется'), true);
+            showStatus('scanStatus', '⏳ ' + (task.detail || i18n.t('status_duplicate_download')), true);
         } else if (task.task_id) {
             hideLoading();
             showDownloadProgress('Скачивание файлов...', 0, 0, 0);
@@ -1092,7 +1077,7 @@ async function pollDownloadTask(taskId) {
         }
     } catch (err) {
         hideDownloadProgress();
-        showStatus('scanStatus', '❌ Ошибка опроса: ' + err.message, true);
+        showStatus('scanStatus', i18n.t('status_poll_error') + ' ' + err.message, true);
         showErrorModal(err.message);
     }
 }
@@ -1189,7 +1174,7 @@ function renderPage() {
     html += '</tbody></table></div>';
     document.getElementById('results').innerHTML = html;
     
-    document.getElementById('pageInfo').textContent = `Страница ${currentPage} из ${totalPages} (${currentResults.length} записей)`;
+    document.getElementById('pageInfo').textContent = `${i18n.t('pagination_page')} ${currentPage} ${i18n.t('pagination_of')} ${totalPages} (${currentResults.length} ${i18n.t('pagination_records')})`;
     document.getElementById('prevPage').disabled = currentPage <= 1;
     document.getElementById('nextPage').disabled = currentPage >= totalPages;
 }

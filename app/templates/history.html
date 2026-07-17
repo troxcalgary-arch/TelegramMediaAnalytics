@@ -12,16 +12,40 @@
         .history-table th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; }
         .history-table tr:hover { background: #f5f5f5; }
         .empty { text-align: center; color: #999; padding: 40px; }
+        .header-row { display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto 15px; }
+        .lang-switcher { display: flex; gap: 4px; }
+        .lang-btn { padding: 6px 14px; border: 2px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .lang-btn:hover { background: rgba(255,255,255,0.2); }
+        .lang-btn.active { background: #667eea; border-color: #667eea; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1 style="color:white; text-shadow:0 2px 8px rgba(0,0,0,0.5);">📋 История сканирований</h1>
-        <div class="card">
-            <div id="historyContent"><p class="placeholder">Загрузка...</p></div>
+    <div class="header-row">
+        <h1 style="color:white; text-shadow:0 2px 8px rgba(0,0,0,0.5); margin:0;" data-i18n="history_page_title">📋 История сканирований</h1>
+        <div class="lang-switcher">
+            <button class="lang-btn" data-lang="ru">RU</button>
+            <button class="lang-btn" data-lang="en">EN</button>
         </div>
     </div>
+    <div class="container">
+        <div class="card">
+            <div id="historyContent"><p class="placeholder" data-i18n="history_loading">Загрузка...</p></div>
+        </div>
+    </div>
+    <script src="/static/i18n.js"></script>
     <script>
+    // Init i18n
+    i18n.init();
+
+    // Language switcher
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            i18n.lang = btn.dataset.lang;
+            location.reload();
+        });
+    });
+    document.querySelector('.lang-btn[data-lang="' + i18n.lang + '"]')?.classList.add('active');
+
     async function loadHistory() {
         try {
             const res = await fetch('/telegram/api/scan-history/all');
@@ -29,14 +53,21 @@
             const history = data.history || [];
             const el = document.getElementById('historyContent');
             if (history.length === 0) {
-                el.innerHTML = '<p class="empty">Нет записей</p>';
+                el.innerHTML = '<p class="empty">' + i18n.t('history_empty_page') + '</p>';
                 return;
             }
             let html = '<div class="table-container"><table class="history-table"><thead><tr>';
-            html += '<th>#</th><th>Дата и время</th><th>Канал</th><th>Тип медиа</th><th>Сообщений</th><th>Авторов</th><th>Топик</th>';
+            html += '<th>#</th>';
+            html += '<th>' + i18n.t('history_date') + '</th>';
+            html += '<th>' + i18n.t('history_channel') + '</th>';
+            html += '<th>' + i18n.t('history_media_type') + '</th>';
+            html += '<th>' + i18n.t('history_messages') + '</th>';
+            html += '<th>' + i18n.t('history_authors') + '</th>';
+            html += '<th>' + i18n.t('history_topic') + '</th>';
             html += '</tr></thead><tbody>';
+            const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
             history.forEach((h, i) => {
-                const dt = new Date(h.timestamp).toLocaleString('ru-RU');
+                const dt = new Date(h.timestamp).toLocaleString(locale);
                 html += '<tr>';
                 html += '<td>' + (i + 1) + '</td>';
                 html += '<td>' + dt + '</td>';
@@ -50,7 +81,7 @@
             html += '</tbody></table></div>';
             el.innerHTML = html;
         } catch (e) {
-            document.getElementById('historyContent').innerHTML = '<p class="empty">Ошибка загрузки</p>';
+            document.getElementById('historyContent').innerHTML = '<p class="empty">' + i18n.t('status_network_error') + '</p>';
         }
     }
     loadHistory();
