@@ -1001,9 +1001,21 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
                 else:
                     ext = ".bin"
 
+                # Resolve sender username for subfolder
                 sender_id = real_msg.sender_id or 0
+                username = str(sender_id)
+                if real_msg.sender:
+                    s = real_msg.sender
+                    username = getattr(s, "username", None) or getattr(s, "first_name", None) or str(sender_id)
+                safe_username = _re.sub(r'[<>:"/\\|?*]', '_', username).strip().strip('.')
+                if not safe_username:
+                    safe_username = str(sender_id)
+
+                user_dir = os.path.join(channel_dir, safe_username)
+                os.makedirs(user_dir, exist_ok=True)
+
                 file_name = f"{msg_id}_{sender_id}{ext}"
-                file_path = os.path.join(channel_dir, file_name)
+                file_path = os.path.join(user_dir, file_name)
 
                 if skip_existing and os.path.exists(file_path):
                     skipped += 1
