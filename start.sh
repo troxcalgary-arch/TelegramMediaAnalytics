@@ -39,6 +39,7 @@ source .venv/bin/activate
 # Install dependencies
 echo ""
 echo "📦 Installing dependencies..."
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 pip install -q -r requirements.txt
 echo "✅ Dependencies installed"
 

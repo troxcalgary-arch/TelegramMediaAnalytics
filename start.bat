@@ -42,6 +42,7 @@ call .venv\Scripts\activate.bat
 REM Install dependencies
 echo.
 echo 📦 Installing dependencies...
+set PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 pip install -q -r requirements.txt
 echo ✅ Dependencies installed
 
