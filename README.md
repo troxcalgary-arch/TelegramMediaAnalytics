@@ -7,7 +7,7 @@ Web-based application for analyzing and downloading media from Telegram channels
 - **Channel Scanning** — scan channels, groups, and forum topics for media files
 - **Media Analytics** — statistics by author (video count, total size, last upload)
 - **Bulk Download** — organized by channel → username with metadata files
-- **Forum Topics** — support for topic IDs (e.g., `-1001911644885_1194`)
+- **Forum Topics** — support for topic IDs (e.g., `-100**11644***_1**4`)
 - **JWT Authentication** — persistent sessions with localStorage
 - **Scan History** — track all scan operations with timestamps
 - **Progress Overlays** — real-time progress bars with blur backdrop
@@ -22,23 +22,43 @@ Web-based application for analyzing and downloading media from Telegram channels
 
 ## Quick Start
 
+### Option 1: One-click start (recommended)
+
+**Linux/macOS:**
 ```bash
-# Clone the repository
+git clone https://github.com/troxcalgary-arch/TelegramMediaAnalytics.git
+cd TelegramMediaAnalytics
+./start.sh
+```
+
+**Windows:**
+```
+git clone https://github.com/troxcalgary-arch/TelegramMediaAnalytics.git
+cd TelegramMediaAnalytics
+start.bat
+```
+
+The script will automatically:
+- Check if Python is installed
+- Create a virtual environment
+- Install all dependencies
+- Create `.env` file if missing
+- Start the application
+
+### Option 2: Manual setup
+
+```bash
 git clone https://github.com/troxcalgary-arch/TelegramMediaAnalytics.git
 cd TelegramMediaAnalytics
 
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
 cp .env.example .env
 # Edit .env with your Telegram API credentials
 
-# Run the application
 python main.py
 ```
 
