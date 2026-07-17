@@ -298,7 +298,7 @@ const translations = {
 
 // i18n Manager
 const i18n = {
-    _lang: localStorage.getItem('app_lang') || 'ru',
+    _lang: localStorage.getItem('app_lang') || 'en',
 
     get lang() {
         return this._lang;
