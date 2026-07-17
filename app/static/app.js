@@ -260,15 +260,18 @@ async function loadSidebarHistory() {
         const el = document.getElementById('scanHistorySidebar');
         if (!el) return;
         if (history.length === 0) {
-            el.innerHTML = '<p style="color:#999; font-size:12px;">Нет записей</p>';
+            el.innerHTML = `<p style="color:#999; font-size:12px;">${i18n.t('history_empty')}</p>`;
             return;
         }
+        const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
         let html = '';
         history.forEach(h => {
-            const dt = new Date(h.timestamp).toLocaleString('ru-RU');
+            const dt = new Date(h.timestamp).toLocaleString(locale);
+            const msgs = i18n.lang === 'en' ? 'messages' : 'сообщений';
+            const auths = i18n.lang === 'en' ? 'authors' : 'авторов';
             html += `<div style="padding:8px 0; border-bottom:1px solid #eee; font-size:12px;">`;
             html += `<div style="color:#555;">${dt}</div>`;
-            html += `<div><strong>${h.total_messages || 0}</strong> сообщений, <strong>${h.unique_authors || 0}</strong> авторов</div>`;
+            html += `<div><strong>${h.total_messages || 0}</strong> ${msgs}, <strong>${h.unique_authors || 0}</strong> ${auths}</div>`;
             html += `<div style="color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${h.channel_id}">${h.channel_title || h.channel_id}</div>`;
             html += `</div>`;
         });

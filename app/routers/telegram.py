@@ -119,21 +119,25 @@ def get_env_config() -> Dict[str, Any]:
     env_path = METADATA_DIR / ".env"
     config = {"api_id": "", "api_hash": "", "phone": ""}
     if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
-                k = k.strip()
-                v = v.strip()
-                if k == "TG_API_ID" and v and v != "your_api_id_here":
-                    try:
-                        config["api_id"] = int(v)
-                    except ValueError:
-                        config["api_id"] = v
-                elif k == "TG_API_HASH" and v and v != "your_api_hash_here":
-                    config["api_hash"] = v
-                elif k == "TG_PHONE" and v and v != "your_phone_number_here":
-                    config["phone"] = v
+        try:
+            content = env_path.read_text(encoding="utf-8-sig")  # utf-8-sig handles BOM
+            for line in content.splitlines():
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")  # Remove quotes too
+                    if k == "TG_API_ID" and v and v != "your_api_id_here":
+                        try:
+                            config["api_id"] = int(v)
+                        except ValueError:
+                            config["api_id"] = v
+                    elif k == "TG_API_HASH" and v and v != "your_api_hash_here":
+                        config["api_hash"] = v
+                    elif k == "TG_PHONE" and v and v != "your_phone_number_here":
+                        config["phone"] = v
+        except Exception as e:
+            logger.warning(f"Failed to read .env: {e}")
 
     # Default download path: Downloads folder in app directory
     default_download = METADATA_DIR / "Downloads"
