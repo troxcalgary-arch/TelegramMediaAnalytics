@@ -39,8 +39,8 @@ auth_sessions: Dict[str, Dict] = {}
 def _make_task_id() -> str:
     return uuid.uuid4().hex[:12]
 
-# Path to metadata JSON files — use project root (parent of app/)
-METADATA_DIR = Path(__file__).resolve().parent.parent
+# Path to metadata JSON files — use project root (where main.py is)
+METADATA_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Scan history file
 HISTORY_FILE = METADATA_DIR / "scan_history.json"
@@ -119,6 +119,8 @@ class DownloadPayload(BaseModel):
     delay_min: float = 2.0  # Минимальная задержка между файлами (сек)
     delay_max: float = 5.0  # Максимальная задержка между файлами (сек)
     skip_existing: bool = True  # Пропускать существующие файлы
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None    # YYYY-MM-DD
 
 
 # ---------- Helper: Load .env for prefill ----------
@@ -772,7 +774,8 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
 async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: str,
                              channel_id: str, media_type: str, days: Optional[int],
                              download_path: str, limit: int, delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True,
-                             session_name: Optional[str] = None):
+                             session_name: Optional[str] = None,
+                             start_date: Optional[str] = None, end_date: Optional[str] = None):
     scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Preparing download..."}
     logger.info(f"[Task {task_id}] Starting download for channel {channel_id}, session={session_name}")
     try:
@@ -803,7 +806,8 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
         scan_tasks[task_id]["channel_title"] = channel_title
 
         messages = await service.get_messages_with_media(
-            channel, filter_type=media_type, days=days, limit=limit
+            channel, filter_type=media_type, days=days, limit=limit,
+            start_date=start_date, end_date=end_date
         )
 
         def progress_cb(done: int, total: int):
@@ -847,6 +851,7 @@ async def start_scan(
     if not api_hash or not phone:
         raise HTTPException(500, "TG_API_HASH or phone not set in .env")
 
+    logger.info(f"[Scan] Payload received: channel_id={payload.channel_id}, start_date={payload.start_date}, end_date={payload.end_date}, days={payload.days}, limit={payload.limit}")
     logger.info(f"User {current_user.username} starting scan for channel {payload.channel_id}, session={cfg.session_name}")
     task_id = _make_task_id()
     background.add_task(
@@ -889,7 +894,7 @@ async def start_download(
         payload.channel_id, payload.media_type, payload.days,
         payload.download_path, payload.limit,
         payload.delay_min, payload.delay_max, payload.skip_existing,
-        cfg.session_name
+        cfg.session_name, payload.start_date, payload.end_date
     )
     return {"task_id": task_id, "status": "started"}
 

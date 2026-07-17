@@ -578,8 +578,10 @@ async function handleScan(e) {
         const headers = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
 
-        // Update current filters so pagination uses the scanned channel
+        // Update current filters so pagination/download uses the scanned channel and dates
         currentFilters.channel_id = payload.channel_id;
+        currentFilters.start_date = payload.start_date || null;
+        currentFilters.end_date = payload.end_date || null;
 
         const res = await fetch('/telegram/api/scan', {
             method: 'POST',
@@ -1030,7 +1032,9 @@ async function handleDownload() {
                 limit: 1000,
                 delay_min: delayMin,
                 delay_max: delayMax,
-                skip_existing: skipExisting
+                skip_existing: skipExisting,
+                start_date: currentFilters.start_date || null,
+                end_date: currentFilters.end_date || null
             })
         });
         
