@@ -115,10 +115,10 @@ class DownloadPayload(BaseModel):
     days: Optional[int] = None
     download_path: str
     limit: int = 1000
-    # Параметры защиты от FloodWait
-    delay_min: float = 2.0  # Минимальная задержка между файлами (сек)
-    delay_max: float = 5.0  # Максимальная задержка между файлами (сек)
-    skip_existing: bool = True  # Пропускать существующие файлы
+    # Anti-flood protection
+    delay_min: float = 2.0  # Min delay between files (sec)
+    delay_max: float = 5.0  # Max delay between files (sec)
+    skip_existing: bool = True  # Skip existing files
     start_date: Optional[str] = None  # YYYY-MM-DD
     end_date: Optional[str] = None    # YYYY-MM-DD
 

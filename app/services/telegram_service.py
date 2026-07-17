@@ -23,25 +23,25 @@ class TelegramService:
         self.client = TelegramClient(self.session_name, api_id, api_hash)
     
     async def connect(self):
-        """Подключается к Telegram (без автологина для auth flow)"""
+        """Connect to Telegram (no auto-login for auth flow)"""
         if not self.client.is_connected():
             await self.client.connect()
         return self.client.is_connected()
 
     async def is_authorized(self) -> bool:
-        """Проверяет, авторизован ли клиент (есть валидная сессия)"""
+        """Check if client is authorized (has valid session)"""
         try:
             return await self.client.is_user_authorized()
         except Exception:
             return False
     
     async def connect_and_login(self):
-        """Полное подключение с логином (для сканирования/скачивания)"""
+        """Full connection with login (for scanning/downloading)"""
         await self.client.start(self.phone)
         return self.client.is_connected()
     
     async def get_channel(self, channel_identifier: str):
-        """Получает канал по username или ID. Поддерживает формат ID_topic (напр. -1001911644885_1194)."""
+        """Get channel by username or ID. Supports topic format (e.g. -1001911644885_1194)."""
         # Extract topic_id if present (format: channelid_topicid)
         topic_id = None
         raw = channel_identifier.strip()
@@ -79,7 +79,7 @@ class TelegramService:
         start_date: фильтр от даты (YYYY-MM-DD)
         end_date: фильтр до даты (YYYY-MM-DD)
         """
-        # Вычисляем дату начала
+        # Calculate start date
         offset_date = None
         if days:
             offset_date = datetime.utcnow() - timedelta(days=days)
@@ -109,12 +109,12 @@ class TelegramService:
             if not batch:
                 break
             
-            # Фильтруем по типу медиа
+            # Filter by media type
             for msg in batch:
                 if days and msg.date < offset_date:
                     continue
 
-                # Фильтр по диапазону дат
+                # Date range filter
                 if start_date:
                     try:
                         from datetime import datetime as dt
@@ -132,7 +132,7 @@ class TelegramService:
                     except ValueError:
                         pass
 
-                # Фильтр по топику форума
+                # Forum topic filter
                 if topic_id is not None:
                     # Check message_thread_id first
                     msg_thread = getattr(msg, "message_thread_id", None)
@@ -319,11 +319,11 @@ class TelegramService:
         
         video_messages = await self.get_messages_with_media(channel, "video", days, limit=5000)
         
-        # Считаем статистику
+        # Calculate statistics
         user_ids = [m["sender_id"] for m in video_messages]
         stats = Counter(user_ids)
         
-        # Формируем результат с именами
+        # Build results with names
         results = []
         for user_id, count in stats.most_common():
             try:
@@ -472,7 +472,7 @@ class TelegramService:
         return {"downloaded": downloaded, "skipped": skipped, "errors": errors, "total": total}
     
     async def get_users_list(self, channel) -> List[Dict]:
-        """Получает список уникальных пользователей канала (только тех, кто писал)"""
+        """Get unique channel users (only those who posted)"""
         participants = []
         offset = 0
         
@@ -498,7 +498,7 @@ class TelegramService:
             
             offset = result.messages[-1].id
         
-        # Получаем уникальных пользователей
+        # Get unique users
         unique_ids = list(set(participants))
         
         users = []
@@ -527,7 +527,7 @@ class TelegramService:
         download_path: str,
         file_name: Optional[str] = None
     ) -> str:
-        """Скачивает медиа файл"""
+        """Download media file"""
         os.makedirs(download_path, exist_ok=True)
         
         if file_name is None:
@@ -543,8 +543,8 @@ class TelegramService:
         await self.client.disconnect()
 
 def get_telegram_service():
-    """Фабрика для создания сервиса"""
-    # Будут берётся из .env
+    """Factory for creating service"""
+    # Values are read from .env
     api_id = int(os.getenv("TG_API_ID", "0"))
     api_hash = os.getenv("TG_API_HASH", "")
     phone = os.getenv("TG_PHONE", "")
