@@ -203,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load initial data if available
     loadSavedResults();
     loadSidebarHistory();
+    checkForUpdates();
 
     // Check if already authenticated
     checkAuthStatus().then(() => checkActiveDownloads());
@@ -279,6 +280,26 @@ async function loadSidebarHistory() {
         el.innerHTML = html;
     } catch (e) {
         console.log('Sidebar history load failed:', e);
+    }
+}
+
+// Check for application updates
+async function checkForUpdates() {
+    try {
+        const res = await fetch('/telegram/api/version');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.update_available) {
+            const el = document.getElementById('scanHistorySidebar');
+            if (el) {
+                const updateHtml = `<div style="margin-top:10px; padding:8px 10px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; font-size:12px;">
+                    ⬆️ <strong>${i18n.t('update_available')}</strong>
+                </div>`;
+                el.insertAdjacentHTML('afterend', updateHtml);
+            }
+        }
+    } catch (e) {
+        console.log('Update check failed:', e);
     }
 }
 

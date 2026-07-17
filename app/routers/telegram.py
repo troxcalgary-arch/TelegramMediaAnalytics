@@ -1073,6 +1073,39 @@ async def get_active_tasks():
     return {"tasks": active}
 
 
+@router.get("/api/version", summary="Check for updates")
+async def check_version():
+    """Compare local VERSION file with latest commit on GitHub."""
+    import httpx
+    local_version_file = METADATA_DIR / "VERSION"
+    local_commit = ""
+    if local_version_file.exists():
+        local_commit = local_version_file.read_text(encoding="utf-8").strip()
+
+    latest_commit = ""
+    update_available = False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://api.github.com/repos/troxcalgary-arch/TelegramMediaAnalytics/commits/main",
+                headers={"Accept": "application/vnd.github.v3+json"}
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_commit = data.get("sha", "")[:12]
+                local_short = local_commit[:12]
+                if local_short and latest_commit and local_short != latest_commit:
+                    update_available = True
+    except Exception as e:
+        logger.debug(f"Version check failed: {e}")
+
+    return {
+        "local_commit": local_commit[:12],
+        "latest_commit": latest_commit,
+        "update_available": update_available
+    }
+
+
 # ---------- Scan history ----------
 def _load_history() -> List[Dict]:
     if HISTORY_FILE.exists():

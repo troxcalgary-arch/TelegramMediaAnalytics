@@ -118,6 +118,7 @@ const translations = {
         pagination_records: "записей",
         pagination_authors: "авторов",
         no_data: "Нет данных для отображения",
+        update_available: "Доступно новое обновление",
         status_active_download: "⏳ Для канала",
         status_active_download_mid: "сейчас в фоне выполняется скачивание",
         status_duplicate_download: "⏳ Скачивание уже выполняется в фоне",
@@ -270,6 +271,7 @@ const translations = {
         pagination_records: "records",
         pagination_authors: "authors",
         no_data: "No data to display",
+        update_available: "Update available",
 
         // Scan history page
         history_page_title: "📋 Scan History",
