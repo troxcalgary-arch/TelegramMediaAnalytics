@@ -48,10 +48,10 @@ app = FastAPI(title="PlaceOfPower - Telegram Media Analytics", version="0.2.0-al
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/telegram/api/token")
 
-# Подключаем роутеры
+# Include routers
 app.include_router(telegram.router, prefix="/telegram", tags=["telegram"])
 
-# Статические файлы и шаблоны
+# Static files and templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
