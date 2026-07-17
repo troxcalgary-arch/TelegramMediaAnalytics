@@ -158,9 +158,6 @@ def get_env_config() -> Dict[str, Any]:
     else:
         logger.warning(f"[Config] .env file NOT found at {env_path}")
     logger.info(f"[Config] Final config: api_id={config['api_id']}, api_hash_len={len(config['api_hash'])}, phone={config['phone'][:5] if config['phone'] else ''}")
-    return config
-        except Exception as e:
-            logger.warning(f"Failed to read .env: {e}")
 
     # Default download path: Downloads folder in app directory
     default_download = METADATA_DIR / "Downloads"
