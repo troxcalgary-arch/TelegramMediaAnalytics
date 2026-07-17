@@ -704,6 +704,7 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
     """Background scan task — updates scan_tasks dict with progress/result."""
     scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Connecting..."}
     logger.info(f"[Task {task_id}] Starting scan for channel {channel_id}, session={session_name}")
+    logger.info(f"[Task {task_id}] Date params: days={days}, start_date={start_date}, end_date={end_date}")
     try:
         service = TelegramService(api_id, api_hash, phone, session_name)
         await service.connect()

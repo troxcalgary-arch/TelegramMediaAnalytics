@@ -568,9 +568,10 @@ async function handleScan(e) {
     // Handle date range
     const dateRange = document.getElementById('dateRange').value;
     if (dateRange) {
-        const [start, end] = dateRange.split(' to ');
-        payload.start_date = start;
-        payload.end_date = end;
+        const parts = dateRange.split(' to ');
+        payload.start_date = parts[0] || null;
+        // If only one date selected, use same date for end
+        payload.end_date = parts[1] || parts[0] || null;
     }
     
     try {
