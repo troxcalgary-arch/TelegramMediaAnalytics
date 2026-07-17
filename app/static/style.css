@@ -213,9 +213,9 @@ button:disabled {
     table-layout: fixed; /* Prevent column overflow */
 }
 
-/* Hide "Топик" column (8th column) */
-.stats-table th:nth-child(8),
-.stats-table td:nth-child(8) {
+/* Hide "Топик" column (9th column, 1-indexed with checkbox) */
+.stats-table th:nth-child(9),
+.stats-table td:nth-child(9) {
     display: none;
 }
 
@@ -245,6 +245,36 @@ button:disabled {
     white-space: nowrap;
     position: relative;
     user-select: none;
+}
+
+/* Checkbox column */
+.stats-table th:first-child,
+.stats-table td:first-child {
+    width: 40px;
+    text-align: center;
+    padding: 10px 6px;
+}
+
+.stats-table td:first-child {
+    cursor: pointer;
+}
+
+.file-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #667eea;
+}
+
+/* Selected download button */
+.download-selected {
+    background: #e67e22 !important;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(230, 126, 34, 0); }
 }
 
 /* Column resize handle */

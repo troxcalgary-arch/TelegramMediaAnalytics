@@ -7,6 +7,7 @@ let currentPage = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
 let currentScanTaskId = null;
 let currentAuthSessionId = null;
+let selectedMessageIds = new Set();
 
 // Loading overlay functions
 function showLoading(text = "Подключение...") {
@@ -59,8 +60,8 @@ function initColumnResize(table, storageKey) {
     } catch (_) {}
 
     ths.forEach((th, idx) => {
-        // Skip hidden columns
-        if (getComputedStyle(th).display === 'none') return;
+        // Skip hidden columns and checkbox column (first column)
+        if (getComputedStyle(th).display === 'none' || idx === 0) return;
 
         const handle = document.createElement('div');
         handle.className = 'col-resize';
@@ -771,6 +772,7 @@ function renderResultsPage(data) {
 
     // Build table with video metadata columns
     const columns = [
+        '', // checkbox column
         i18n.t('col_num'), i18n.t('col_date'), i18n.t('col_author'), i18n.t('col_username'),
         i18n.t('col_duration'), i18n.t('col_size'), i18n.t('col_mime'),
         i18n.t('col_topic'), i18n.t('col_caption')
@@ -778,6 +780,9 @@ function renderResultsPage(data) {
     let html = '<div class="table-container"><table class="stats-table"><thead><tr>';
     columns.forEach(col => html += '<th>' + col + '</th>');
     html += '</tr></thead><tbody>';
+
+    // Clear selected files when re-rendering
+    selectedMessageIds = new Set();
 
     const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
     pageData.forEach((video, idx) => {
@@ -788,8 +793,10 @@ function renderResultsPage(data) {
         const audioAttrs = attrs.audio || {};
         const duration = videoAttrs.duration || audioAttrs.duration;
         const fullName = ((sender.first_name || '') + ' ' + (sender.last_name || '')).trim();
+        const msgId = video.message_id;
 
         html += '<tr>';
+        html += '<td><input type="checkbox" class="file-checkbox" data-msg-id="' + msgId + '" onchange="toggleFileSelection(this)"></td>';
         html += '<td>' + (data.start + idx + 1) + '</td>';
         html += '<td>' + (video.date ? new Date(video.date).toLocaleString(locale) : '-') + '</td>';
         html += '<td>' + (fullName || '-') + '</td>';
@@ -982,6 +989,30 @@ async function pickFolder() {
     document.body.removeChild(input);
 }
 
+// Handle file checkbox selection
+function toggleFileSelection(checkbox) {
+    const msgId = parseInt(checkbox.dataset.msgId);
+    if (checkbox.checked) {
+        selectedMessageIds.add(msgId);
+    } else {
+        selectedMessageIds.delete(msgId);
+    }
+    updateDownloadButton();
+}
+
+// Update download button based on selection
+function updateDownloadButton() {
+    const btn = document.getElementById('downloadBtn');
+    if (!btn) return;
+    if (selectedMessageIds.size > 0) {
+        btn.textContent = `📥 ${i18n.t('download_selected')} (${selectedMessageIds.size})`;
+        btn.classList.add('download-selected');
+    } else {
+        btn.textContent = `📥 ${i18n.t('download_btn')}`;
+        btn.classList.remove('download-selected');
+    }
+}
+
 // Handle download
 async function handleDownload() {
     const path = document.getElementById('download_path').value;
@@ -1014,28 +1045,39 @@ async function handleDownload() {
     } catch (e) { /* proceed anyway */ }
 
     hideStatus('scanStatus');
-    showLoading("Запуск скачивания...");
-    
+    showLoading(i18n.t('status_download_started'));
+
     try {
         const headers = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-        
-        const res = await fetch('/telegram/api/download', {
+
+        // Check if specific files are selected
+        const useSelected = selectedMessageIds.size > 0;
+        const endpoint = useSelected ? '/telegram/api/download-selected' : '/telegram/api/download';
+
+        const body = {
+            channel_id: channelId,
+            media_type: mediaType,
+            days: days,
+            download_path: path,
+            limit: 1000,
+            delay_min: delayMin,
+            delay_max: delayMax,
+            skip_existing: skipExisting,
+            start_date: currentFilters.start_date || null,
+            end_date: currentFilters.end_date || null
+        };
+
+        // Add message_ids for selected files download
+        if (useSelected) {
+            body.message_ids = Array.from(selectedMessageIds);
+        }
+
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers,
             credentials: 'include',
-            body: JSON.stringify({
-                channel_id: channelId,
-                media_type: mediaType,
-                days: days,
-                download_path: path,
-                limit: 1000,
-                delay_min: delayMin,
-                delay_max: delayMax,
-                skip_existing: skipExisting,
-                start_date: currentFilters.start_date || null,
-                end_date: currentFilters.end_date || null
-            })
+            body: JSON.stringify(body)
         });
         
         const task = await res.json();

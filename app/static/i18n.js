@@ -93,6 +93,7 @@ const translations = {
         prev_page: "← Назад",
         next_page: "Вперёд →",
         download_btn: "📥 Скачать файлы в выбранную папку",
+        download_selected: "📥 Скачать выбранные файлы",
 
         // Overlays
         loading_connect: "Подключение...",
@@ -241,6 +242,7 @@ const translations = {
         prev_page: "← Back",
         next_page: "Next →",
         download_btn: "📥 Download files to selected folder",
+        download_selected: "📥 Download selected files",
 
         // Overlays
         loading_connect: "Connecting...",
