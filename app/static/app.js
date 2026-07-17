@@ -585,7 +585,11 @@ async function autoLogin(sessionId) {
 async function handleScan(e) {
     e.preventDefault();
     hideStatus('scanStatus');
-    showLoading("Сканирование канала...");  // Show spinner with backdrop
+    showLoading(i18n.t('scan_progress'));
+
+    // Reset stats section
+    document.getElementById('statsTableContainer').innerHTML = `<p class="placeholder">${i18n.t('stats_placeholder')}</p>`;
+    document.getElementById('statsPagination').style.display = 'none';
     
     const formData = new FormData(e.target);
     const payload = {
