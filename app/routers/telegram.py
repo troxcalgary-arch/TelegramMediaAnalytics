@@ -105,6 +105,8 @@ class ScanPayload(BaseModel):
     media_type: str = "video"  # video, audio, all
     days: Optional[int] = None
     limit: int = 1000
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None    # YYYY-MM-DD
 
 
 class DownloadPayload(BaseModel):
@@ -679,7 +681,8 @@ async def get_videos_stats(
 
 async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
                          channel_id: str, media_type: str, days: Optional[int], limit: int,
-                         session_name: Optional[str] = None):
+                         session_name: Optional[str] = None,
+                         start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Background scan task — updates scan_tasks dict with progress/result."""
     scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Connecting..."}
     logger.info(f"[Task {task_id}] Starting scan for channel {channel_id}, session={session_name}")
@@ -707,7 +710,8 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
 
         messages = await service.get_messages_with_media(
             channel, filter_type=media_type, days=days, limit=limit, topic_id=topic_id,
-            progress_callback=scan_progress
+            progress_callback=scan_progress,
+            start_date=start_date, end_date=end_date
         )
 
         if media_type == "video":
@@ -832,7 +836,7 @@ async def start_scan(
     background.add_task(
         _run_scan_task, task_id, cfg.api_id, api_hash, phone,
         payload.channel_id, payload.media_type, payload.days, payload.limit,
-        cfg.session_name
+        cfg.session_name, payload.start_date, payload.end_date
     )
     return {"task_id": task_id, "status": "started"}
 

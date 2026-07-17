@@ -65,7 +65,9 @@ class TelegramService:
         days: Optional[int] = None,
         limit: int = 1000,
         topic_id: Optional[int] = None,
-        progress_callback=None
+        progress_callback=None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> List[Dict]:
         """
         Получает сообщения с медиа из канала
@@ -74,6 +76,8 @@ class TelegramService:
         days: фильтр по дням (None = все время, назад от текущей даты)
         topic_id: фильтр по топику форума (None = все топики)
         progress_callback: callable(scanned_total, matched_count) для обновления прогресса
+        start_date: фильтр от даты (YYYY-MM-DD)
+        end_date: фильтр до даты (YYYY-MM-DD)
         """
         # Вычисляем дату начала
         offset_date = None
@@ -109,6 +113,24 @@ class TelegramService:
             for msg in batch:
                 if days and msg.date < offset_date:
                     continue
+
+                # Фильтр по диапазону дат
+                if start_date:
+                    try:
+                        from datetime import datetime as dt
+                        start_dt = dt.strptime(start_date, "%Y-%m-%d")
+                        if msg.date.replace(tzinfo=None) < start_dt:
+                            continue
+                    except ValueError:
+                        pass
+                if end_date:
+                    try:
+                        from datetime import datetime as dt, timedelta
+                        end_dt = dt.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                        if msg.date.replace(tzinfo=None) >= end_dt:
+                            continue
+                    except ValueError:
+                        pass
 
                 # Фильтр по топику форума
                 if topic_id is not None:
