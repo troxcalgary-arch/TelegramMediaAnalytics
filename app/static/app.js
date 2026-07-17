@@ -25,7 +25,7 @@ function hideLoading() {
 }
 
 // Download progress overlay functions
-function showDownloadProgress(message = "Скачивание файлов...", progress = 0, done = 0, total = 0) {
+function showDownloadProgress(message, progress = 0, done = 0, total = 0) {
     const overlay = document.getElementById('downloadOverlay');
     const bar = document.getElementById('downloadProgressBar');
     const text = document.getElementById('downloadProgressText');
@@ -595,7 +595,7 @@ async function handleScan(e) {
         if (task.task_id) {
             currentScanTaskId = task.task_id;
             hideLoading();
-            showDownloadProgress('Сканирование канала...', 0, 0, 0);
+            showDownloadProgress(i18n.t('scan_progress'), 0, 0, 0);
             pollTask(task.task_id);
         } else {
             hideLoading();
@@ -1091,7 +1091,7 @@ async function handleDownload() {
             showStatus('scanStatus', '⏳ ' + (task.detail || i18n.t('status_duplicate_download')), true);
         } else if (task.task_id) {
             hideLoading();
-            showDownloadProgress('Скачивание файлов...', 0, 0, 0);
+            showDownloadProgress(i18n.t('download_title'), 0, 0, 0);
             pollDownloadTask(task.task_id);
         } else {
             hideLoading();
@@ -1120,7 +1120,7 @@ async function pollDownloadTask(taskId) {
             const done = match ? parseInt(match[1]) : 0;
             const total = match ? parseInt(match[2]) : 0;
             const progress = task.progress || (total ? Math.round(done / total * 100) : 0);
-            showDownloadProgress('Скачивание файлов...', progress, done, total);
+            showDownloadProgress(i18n.t('download_title'), progress, done, total);
             setTimeout(() => pollDownloadTask(taskId), 3000);
         } else if (task.status === 'completed') {
             hideDownloadProgress();
