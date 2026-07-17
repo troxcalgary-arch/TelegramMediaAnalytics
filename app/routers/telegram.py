@@ -39,8 +39,8 @@ auth_sessions: Dict[str, Dict] = {}
 def _make_task_id() -> str:
     return uuid.uuid4().hex[:12]
 
-# Path to metadata JSON files — use project root (parent of app/)
-METADATA_DIR = Path(__file__).resolve().parent.parent
+# Path to metadata JSON files — use project root (where main.py is)
+METADATA_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Scan history file
 HISTORY_FILE = METADATA_DIR / "scan_history.json"
@@ -847,6 +847,7 @@ async def start_scan(
     if not api_hash or not phone:
         raise HTTPException(500, "TG_API_HASH or phone not set in .env")
 
+    logger.info(f"[Scan] Payload received: channel_id={payload.channel_id}, start_date={payload.start_date}, end_date={payload.end_date}, days={payload.days}, limit={payload.limit}")
     logger.info(f"User {current_user.username} starting scan for channel {payload.channel_id}, session={cfg.session_name}")
     task_id = _make_task_id()
     background.add_task(
