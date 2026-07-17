@@ -136,6 +136,16 @@ document.addEventListener('DOMContentLoaded', () => {
     i18n.init();
 
     // Language switcher
+    const languageMenu = document.getElementById('languageMenu');
+    if (languageMenu) {
+        languageMenu.value = i18n.lang;
+        languageMenu.addEventListener('change', () => {
+            i18n.lang = languageMenu.value;
+            // Reload page to apply all translations
+            location.reload();
+        });
+    }
+
     document.querySelectorAll('.lang-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             i18n.lang = btn.dataset.lang;
@@ -273,12 +283,12 @@ async function loadSidebarHistory() {
             el.innerHTML = `<p style="color:#999; font-size:12px;">${i18n.t('history_empty')}</p>`;
             return;
         }
-        const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
+        const locale = i18n.locale();
         let html = '';
         history.forEach(h => {
             const dt = new Date(h.timestamp).toLocaleString(locale);
-            const msgs = i18n.lang === 'en' ? 'messages' : 'сообщений';
-            const auths = i18n.lang === 'en' ? 'authors' : 'авторов';
+            const msgs = i18n.t('history_messages').toLowerCase();
+            const auths = i18n.t('history_authors').toLowerCase();
             html += `<div style="padding:8px 0; border-bottom:1px solid #eee; font-size:12px;">`;
             html += `<div style="color:#555;">${dt}</div>`;
             html += `<div><strong>${h.total_messages || 0}</strong> ${msgs}, <strong>${h.unique_authors || 0}</strong> ${auths}</div>`;
@@ -301,7 +311,7 @@ async function checkForUpdates() {
             // Insert after "View history" link
             const historyLink = document.querySelector('a[href="/telegram/history"]');
             if (historyLink) {
-                const updateHtml = `<div style="margin-top:10px; padding:8px 10px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; font-size:12px;">
+                const updateHtml = `<div class="update-badge">
                     ⬆️ <strong>${i18n.t('update_available')}</strong>
                 </div>`;
                 historyLink.insertAdjacentHTML('afterend', updateHtml);
@@ -815,7 +825,7 @@ function renderResultsPage(data) {
     columns.forEach(col => html += '<th>' + col + '</th>');
     html += '</tr></thead><tbody>';
 
-    const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
+    const locale = i18n.locale();
     pageData.forEach((video, idx) => {
         const sender = video.sender || {};
         const v = video.video || {};
@@ -941,7 +951,7 @@ function renderStatsTable(data) {
             <tbody>
     `;
 
-    const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
+    const locale = i18n.locale();
     data.authors.forEach((author, idx) => {
         const name = author.first_name || '';
         const lastName = author.last_name || '';
