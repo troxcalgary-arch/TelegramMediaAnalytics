@@ -58,6 +58,7 @@ const translations = {
         skip_existing: "Пропускать существующие файлы",
         delay_recommendation: "Рекомендуется: мин 2 сек, макс 5 сек. Случайная задержка между файлами защищает от FloodWait. При больших объёмах увеличьте до 5-10 сек.",
         scan_btn: "Запустить сканирование",
+        error_select_folder: "Сначала выберите папку для скачивания",
 
         // Stats
         stats_title: "📈 Статистика по авторам",
@@ -205,6 +206,7 @@ const translations = {
         skip_existing: "Skip existing files",
         delay_recommendation: "Recommended: min 2 sec, max 5 sec. Random delay between files protects from FloodWait. For large volumes increase to 5-10 sec.",
         scan_btn: "Start scanning",
+        error_select_folder: "Please select a download folder first",
 
         // Stats
         stats_title: "📈 Author Statistics",

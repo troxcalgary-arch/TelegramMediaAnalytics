@@ -640,7 +640,7 @@ async function pollTask(taskId) {
         } else if (task.status === 'error') {
             hideDownloadProgress();
             hideLoading();
-            showErrorModal('Ошибка сканирования:\n' + task.message);
+            showErrorModal(i18n.t('status_error') + ' ' + task.message);
             showStatus('scanStatus', '❌ Ошибка: ' + task.message, true);
         }
     } catch (err) {
@@ -983,7 +983,7 @@ async function pickFolder() {
 async function handleDownload() {
     const path = document.getElementById('download_path').value;
     if (!path) {
-        showErrorModal('Сначала выберите папку для скачивания');
+        showErrorModal(i18n.t('error_select_folder'));
         return;
     }
 

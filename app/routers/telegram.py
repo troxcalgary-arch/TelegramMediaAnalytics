@@ -61,7 +61,7 @@ def save_scan_result(channel_id: str, result: Dict[str, Any]) -> None:
     """Save scan result for a channel."""
     result["channel_id"] = channel_id
     result["saved_at"] = datetime.utcnow().isoformat() + "Z"
-    get_result_file(channel_id).write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    get_result_file(channel_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_scan_result(channel_id: str) -> Optional[Dict[str, Any]]:
@@ -200,7 +200,7 @@ def save_scan_result(channel_id: str, result: Dict) -> None:
     safe_id = channel_id.replace("@", "at_").replace("/", "_")
     result_file = METADATA_DIR / f"scan_result_{safe_id}.json"
     try:
-        result_file.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+        result_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         print(f"Failed to save scan result: {e}")
 
@@ -925,7 +925,7 @@ def _load_history() -> List[Dict]:
     return []
 
 def _save_history(history: List[Dict]):
-    HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2))
+    HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def _add_to_history(entry: Dict):
     history = _load_history()
