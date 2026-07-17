@@ -39,8 +39,8 @@ auth_sessions: Dict[str, Dict] = {}
 def _make_task_id() -> str:
     return uuid.uuid4().hex[:12]
 
-# Path to metadata JSON files
-METADATA_DIR = Path("/home/inetbard/projects/PlaceOfPower/TelegramMediaAnalytics")
+# Path to metadata JSON files — use project root (parent of app/)
+METADATA_DIR = Path(__file__).resolve().parent.parent
 
 # Scan history file
 HISTORY_FILE = METADATA_DIR / "scan_history.json"
