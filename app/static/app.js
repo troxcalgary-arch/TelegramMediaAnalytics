@@ -781,9 +781,6 @@ function renderResultsPage(data) {
     columns.forEach(col => html += '<th>' + col + '</th>');
     html += '</tr></thead><tbody>';
 
-    // Clear selected files when re-rendering
-    selectedMessageIds = new Set();
-
     const locale = i18n.lang === 'en' ? 'en-US' : 'ru-RU';
     pageData.forEach((video, idx) => {
         const sender = video.sender || {};
@@ -811,6 +808,14 @@ function renderResultsPage(data) {
     
     html += '</tbody></table></div>';
     document.getElementById('results').innerHTML = html;
+
+    // Restore checkbox states for already selected files
+    document.querySelectorAll('.file-checkbox').forEach(cb => {
+        const msgId = parseInt(cb.dataset.msgId);
+        if (selectedMessageIds.has(msgId)) {
+            cb.checked = true;
+        }
+    });
 
     // Init column resize on the new table
     const newTable = document.querySelector('#results .stats-table');
