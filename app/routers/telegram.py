@@ -126,24 +126,39 @@ def get_env_config() -> Dict[str, Any]:
     """Read .env for prefill values."""
     env_path = METADATA_DIR / ".env"
     config = {"api_id": "", "api_hash": "", "phone": ""}
+    logger.info(f"[Config] Looking for .env at: {env_path}")
+    logger.info(f"[Config] METADATA_DIR: {METADATA_DIR}")
+    logger.info(f"[Config] .env exists: {env_path.exists()}")
     if env_path.exists():
         try:
             content = env_path.read_text(encoding="utf-8-sig")  # utf-8-sig handles BOM
+            logger.info(f"[Config] .env file size: {len(content)} bytes")
             for line in content.splitlines():
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     k, v = line.split('=', 1)
                     k = k.strip()
                     v = v.strip().strip('"').strip("'")  # Remove quotes too
+                    logger.info(f"[Config] Found key={k}, value_len={len(v)}")
                     if k == "TG_API_ID" and v and v != "your_api_id_here":
                         try:
                             config["api_id"] = int(v)
+                            logger.info(f"[Config] Set api_id={config['api_id']}")
                         except ValueError:
                             config["api_id"] = v
+                            logger.info(f"[Config] Set api_id (str)={config['api_id']}")
                     elif k == "TG_API_HASH" and v and v != "your_api_hash_here":
                         config["api_hash"] = v
+                        logger.info(f"[Config] Set api_hash (len={len(v)})")
                     elif k == "TG_PHONE" and v and v != "your_phone_number_here":
                         config["phone"] = v
+                        logger.info(f"[Config] Set phone={v[:5]}...")
+        except Exception as e:
+            logger.error(f"[Config] Failed to read .env: {e}")
+    else:
+        logger.warning(f"[Config] .env file NOT found at {env_path}")
+    logger.info(f"[Config] Final config: api_id={config['api_id']}, api_hash_len={len(config['api_hash'])}, phone={config['phone'][:5] if config['phone'] else ''}")
+    return config
         except Exception as e:
             logger.warning(f"Failed to read .env: {e}")
 
@@ -268,7 +283,10 @@ auth_sessions: Dict[str, Dict] = {}
 @router.get("/api/config", summary="Get .env config for form prefill")
 async def get_env_config_endpoint():
     """Returns .env values for pre-filling the connection form."""
-    return get_env_config()
+    logger.info("[API] GET /api/config called")
+    result = get_env_config()
+    logger.info(f"[API] Returning config: api_id={result['api_id']}, api_hash_len={len(result['api_hash'])}, phone={result['phone'][:5] if result['phone'] else ''}")
+    return result
 
 
 # ---------- Auth endpoints ----------
