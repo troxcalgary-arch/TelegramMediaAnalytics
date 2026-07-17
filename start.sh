@@ -40,7 +40,7 @@ source .venv/bin/activate
 echo ""
 echo "📦 Installing dependencies..."
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-pip install -q -r requirements.txt
+pip install --no-cache-dir -q -r requirements.txt
 echo "✅ Dependencies installed"
 
 # Create .env if not exists

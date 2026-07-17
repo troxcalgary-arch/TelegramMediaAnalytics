@@ -43,7 +43,7 @@ REM Install dependencies
 echo.
 echo 📦 Installing dependencies...
 set PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-pip install -q -r requirements.txt
+pip install --no-cache-dir -q -r requirements.txt
 echo ✅ Dependencies installed
 
 REM Create .env if not exists
