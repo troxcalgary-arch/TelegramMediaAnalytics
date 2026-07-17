@@ -1090,30 +1090,41 @@ async def check_version():
     """Compare local VERSION file with latest commit on GitHub."""
     import httpx
     local_version_file = METADATA_DIR / "VERSION"
+    logger.info(f"[Version] Looking for VERSION at: {local_version_file}")
+    logger.info(f"[Version] VERSION exists: {local_version_file.exists()}")
     local_commit = ""
     if local_version_file.exists():
         local_commit = local_version_file.read_text(encoding="utf-8").strip()
+        logger.info(f"[Version] Local commit: {local_commit}")
 
     latest_commit = ""
     update_available = False
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 "https://api.github.com/repos/troxcalgary-arch/TelegramMediaAnalytics/commits/main",
                 headers={"Accept": "application/vnd.github.v3+json"}
             )
+            logger.info(f"[Version] GitHub API status: {resp.status_code}")
             if resp.status_code == 200:
                 data = resp.json()
                 latest_commit = data.get("sha", "")[:12]
                 local_short = local_commit[:12]
+                logger.info(f"[Version] Local short: {local_short}, Latest: {latest_commit}")
                 if local_short and latest_commit and local_short != latest_commit:
                     update_available = True
+                    logger.info(f"[Version] Update available: {local_short} != {latest_commit}")
+                else:
+                    logger.info(f"[Version] Up to date")
+            else:
+                logger.warning(f"[Version] GitHub API returned {resp.status_code}")
     except Exception as e:
-        logger.debug(f"Version check failed: {e}")
+        logger.error(f"[Version] Version check failed: {e}")
 
+    logger.info(f"[Version] Result: local={local_commit[:12]}, latest={latest_commit[:12]}, update={update_available}")
     return {
         "local_commit": local_commit[:12],
-        "latest_commit": latest_commit,
+        "latest_commit": latest_commit[:12],
         "update_available": update_available
     }
 
