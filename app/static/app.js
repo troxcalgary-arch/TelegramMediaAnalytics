@@ -37,7 +37,15 @@ function showDownloadProgress(message, progress = 0, done = 0, total = 0) {
     if (title) title.textContent = message;
     if (bar) bar.style.width = progress + '%';
     if (text) text.textContent = done + ' / ' + total;
-    if (pct) pct.textContent = progress + '%';
+    // Hide percent during scanning (when progress is 0 and done/total show message count)
+    if (pct) {
+        if (progress > 0) {
+            pct.style.display = 'block';
+            pct.textContent = progress + '%';
+        } else {
+            pct.style.display = 'none';
+        }
+    }
 }
 
 function hideDownloadProgress() {

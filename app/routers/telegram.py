@@ -1110,21 +1110,24 @@ async def check_version():
 def _load_history() -> List[Dict]:
     if HISTORY_FILE.exists():
         try:
-            return json.loads(HISTORY_FILE.read_text())
-        except Exception:
-            pass
+            return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load history: {e}")
     return []
 
 def _save_history(history: List[Dict]):
     HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def _add_to_history(entry: Dict):
+    logger.info(f"[History] Adding entry for channel {entry.get('channel_id')}")
+    logger.info(f"[History] HISTORY_FILE: {HISTORY_FILE}")
     history = _load_history()
     history.insert(0, entry)
     # Keep max 100 entries
     if len(history) > 100:
         history = history[:100]
     _save_history(history)
+    logger.info(f"[History] Saved {len(history)} entries")
 
 
 @router.get("/api/scan-history", summary="Get scan history")
