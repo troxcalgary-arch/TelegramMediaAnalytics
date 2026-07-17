@@ -123,6 +123,15 @@ class DownloadPayload(BaseModel):
     end_date: Optional[str] = None    # YYYY-MM-DD
 
 
+class DownloadSelectedPayload(BaseModel):
+    channel_id: str
+    message_ids: List[int]
+    download_path: str
+    delay_min: float = 2.0
+    delay_max: float = 5.0
+    skip_existing: bool = True
+
+
 # ---------- Helper: Load .env for prefill ----------
 def get_env_config() -> Dict[str, Any]:
     """Read .env for prefill values."""
@@ -899,6 +908,159 @@ async def start_download(
     return {"task_id": task_id, "status": "started"}
 
 
+@router.post("/api/download-selected", summary="Download selected files by message IDs")
+async def start_download_selected(
+    background: BackgroundTasks,
+    payload: DownloadSelectedPayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    cfg = db.query(ApiSessionConfig).filter(ApiSessionConfig.user_id == current_user.id).first()
+    if not cfg or not cfg.api_id:
+        raise HTTPException(400, "Telegram API credentials not configured.")
+
+    api_hash = os.getenv("TG_API_HASH", "")
+    phone = cfg.phone_number or os.getenv("TG_PHONE", "")
+    if not api_hash or not phone:
+        raise HTTPException(500, "TG_API_HASH or phone not set in .env")
+
+    logger.info(f"User {current_user.username} starting selected download: {len(payload.message_ids)} files for channel {payload.channel_id}")
+
+    # Check duplicate
+    for tid, t in scan_tasks.items():
+        if t.get("status") == "running" and t.get("channel_id") == payload.channel_id:
+            raise HTTPException(409, detail=f"Download already in progress for this channel (Task ID: {tid})")
+
+    task_id = _make_task_id()
+    background.add_task(
+        _run_download_selected_task, task_id, cfg.api_id, api_hash, phone,
+        payload.channel_id, payload.message_ids, payload.download_path,
+        payload.delay_min, payload.delay_max, payload.skip_existing,
+        cfg.session_name
+    )
+    return {"task_id": task_id, "status": "started"}
+
+
+async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, phone: str,
+                                      channel_id: str, message_ids: List[int], download_path: str,
+                                      delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True,
+                                      session_name: Optional[str] = None):
+    """Download specific files by message IDs."""
+    import random
+    from telethon.errors import FloodWaitError
+
+    scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Connecting...", "channel_id": channel_id}
+    logger.info(f"[Task {task_id}] Starting selected download: {len(message_ids)} files")
+
+    try:
+        service = TelegramService(api_id, api_hash, phone, session_name)
+        await service.connect()
+
+        if not await service.is_authorized():
+            scan_tasks[task_id] = {"status": "error", "message": "Session not authorized."}
+            await service.disconnect()
+            return
+
+        channel, _ = await service.get_channel(channel_id)
+        channel_title = getattr(channel, "title", None) or channel_id
+        scan_tasks[task_id]["channel_title"] = channel_title
+
+        # Create subfolder by channel name
+        import re as _re
+        safe_title = _re.sub(r'[<>:"/\\|?*]', '_', channel_title).strip().strip('.')
+        if not safe_title:
+            safe_title = str(channel_id)
+        channel_dir = os.path.join(download_path, safe_title)
+        os.makedirs(channel_dir, exist_ok=True)
+
+        total = len(message_ids)
+        downloaded = 0
+        skipped = 0
+        errors = 0
+
+        for i, msg_id in enumerate(message_ids):
+            try:
+                real_msg = await service.client.get_messages(channel, ids=msg_id)
+                if not real_msg:
+                    errors += 1
+                    continue
+
+                # Determine extension
+                if real_msg.video:
+                    ext = ".mp4"
+                elif real_msg.photo:
+                    ext = ".jpg"
+                elif real_msg.audio:
+                    ext = ".mp3"
+                elif real_msg.document:
+                    ext = ".bin"
+                    for attr in getattr(real_msg.document, "attributes", []) or []:
+                        if hasattr(attr, "file_name") and attr.file_name:
+                            ext = os.path.splitext(attr.file_name)[1] or ".bin"
+                            break
+                else:
+                    ext = ".bin"
+
+                # Resolve sender username for subfolder
+                sender_id = real_msg.sender_id or 0
+                username = str(sender_id)
+                if real_msg.sender:
+                    s = real_msg.sender
+                    username = getattr(s, "username", None) or getattr(s, "first_name", None) or str(sender_id)
+                safe_username = _re.sub(r'[<>:"/\\|?*]', '_', username).strip().strip('.')
+                if not safe_username:
+                    safe_username = str(sender_id)
+
+                user_dir = os.path.join(channel_dir, safe_username)
+                os.makedirs(user_dir, exist_ok=True)
+
+                file_name = f"{msg_id}_{sender_id}{ext}"
+                file_path = os.path.join(user_dir, file_name)
+
+                if skip_existing and os.path.exists(file_path):
+                    skipped += 1
+                    scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
+                    scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}..."
+                    continue
+
+                await service.client.download_media(real_msg, file=file_path)
+                downloaded += 1
+
+                scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
+                scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}..."
+
+                if i < len(message_ids) - 1:
+                    delay = random.uniform(delay_min, delay_max)
+                    await asyncio.sleep(delay)
+
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds + 5)
+                try:
+                    real_msg = await service.client.get_messages(channel, ids=msg_id)
+                    if real_msg:
+                        await service.client.download_media(real_msg, file=file_path)
+                        downloaded += 1
+                except Exception:
+                    errors += 1
+            except Exception as e:
+                errors += 1
+                logger.error(f"Error downloading msg {msg_id}: {e}")
+
+        scan_tasks[task_id] = {
+            "status": "completed",
+            "downloaded": downloaded,
+            "skipped": skipped,
+            "errors": errors,
+            "path": channel_dir,
+            "message": f"Downloaded {downloaded} files to {safe_title}/, skipped {skipped}, {errors} errors"
+        }
+        logger.info(f"[Task {task_id}] Selected download completed: {downloaded}/{total}")
+        await service.disconnect()
+    except Exception as e:
+        logger.exception(f"[Task {task_id}] Selected download error: {e}")
+        scan_tasks[task_id] = {"status": "error", "message": str(e)}
+
+
 @router.get("/api/task/{task_id}", summary="Check background task status")
 async def get_task_status(task_id: str):
     task = scan_tasks.get(task_id)
@@ -923,25 +1085,61 @@ async def get_active_tasks():
     return {"tasks": active}
 
 
+@router.get("/api/version", summary="Check for updates")
+async def check_version():
+    """Compare local VERSION file with latest commit on GitHub."""
+    import httpx
+    local_version_file = METADATA_DIR / "VERSION"
+    local_commit = ""
+    if local_version_file.exists():
+        local_commit = local_version_file.read_text(encoding="utf-8").strip()
+
+    latest_commit = ""
+    update_available = False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://api.github.com/repos/troxcalgary-arch/TelegramMediaAnalytics/commits/main",
+                headers={"Accept": "application/vnd.github.v3+json"}
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_commit = data.get("sha", "")[:12]
+                local_short = local_commit[:12]
+                if local_short and latest_commit and local_short != latest_commit:
+                    update_available = True
+    except Exception as e:
+        logger.debug(f"Version check failed: {e}")
+
+    return {
+        "local_commit": local_commit[:12],
+        "latest_commit": latest_commit,
+        "update_available": update_available
+    }
+
+
 # ---------- Scan history ----------
 def _load_history() -> List[Dict]:
     if HISTORY_FILE.exists():
         try:
-            return json.loads(HISTORY_FILE.read_text())
-        except Exception:
-            pass
+            return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load history: {e}")
     return []
 
 def _save_history(history: List[Dict]):
     HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def _add_to_history(entry: Dict):
+    logger.info(f"[History] Adding entry for channel {entry.get('channel_id')}")
+    logger.info(f"[History] HISTORY_FILE: {HISTORY_FILE}")
     history = _load_history()
     history.insert(0, entry)
     # Keep max 100 entries
     if len(history) > 100:
         history = history[:100]
     _save_history(history)
+    logger.info(f"[History] Saved {len(history)} entries")
 
 
 @router.get("/api/scan-history", summary="Get scan history")

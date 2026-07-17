@@ -7,6 +7,7 @@ let currentPage = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
 let currentScanTaskId = null;
 let currentAuthSessionId = null;
+let selectedMessageIds = new Set();
 
 // Loading overlay functions
 function showLoading(text = "Подключение...") {
@@ -24,7 +25,7 @@ function hideLoading() {
 }
 
 // Download progress overlay functions
-function showDownloadProgress(message = "Скачивание файлов...", progress = 0, done = 0, total = 0) {
+function showDownloadProgress(message, progress = 0, done = 0, total = 0) {
     const overlay = document.getElementById('downloadOverlay');
     const bar = document.getElementById('downloadProgressBar');
     const text = document.getElementById('downloadProgressText');
@@ -36,7 +37,15 @@ function showDownloadProgress(message = "Скачивание файлов...", 
     if (title) title.textContent = message;
     if (bar) bar.style.width = progress + '%';
     if (text) text.textContent = done + ' / ' + total;
-    if (pct) pct.textContent = progress + '%';
+    // Hide percent during scanning (when progress is 0 and done/total show message count)
+    if (pct) {
+        if (progress > 0) {
+            pct.style.display = 'block';
+            pct.textContent = progress + '%';
+        } else {
+            pct.style.display = 'none';
+        }
+    }
 }
 
 function hideDownloadProgress() {
@@ -59,8 +68,8 @@ function initColumnResize(table, storageKey) {
     } catch (_) {}
 
     ths.forEach((th, idx) => {
-        // Skip hidden columns
-        if (getComputedStyle(th).display === 'none') return;
+        // Skip hidden columns and checkbox column (first column)
+        if (getComputedStyle(th).display === 'none' || idx === 0) return;
 
         const handle = document.createElement('div');
         handle.className = 'col-resize';
@@ -202,6 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load initial data if available
     loadSavedResults();
     loadSidebarHistory();
+    checkForUpdates();
 
     // Check if already authenticated
     checkAuthStatus().then(() => checkActiveDownloads());
@@ -278,6 +288,26 @@ async function loadSidebarHistory() {
         el.innerHTML = html;
     } catch (e) {
         console.log('Sidebar history load failed:', e);
+    }
+}
+
+// Check for application updates
+async function checkForUpdates() {
+    try {
+        const res = await fetch('/telegram/api/version');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.update_available) {
+            const el = document.getElementById('scanHistorySidebar');
+            if (el) {
+                const updateHtml = `<div style="margin-top:10px; padding:8px 10px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; font-size:12px;">
+                    ⬆️ <strong>${i18n.t('update_available')}</strong>
+                </div>`;
+                el.insertAdjacentHTML('afterend', updateHtml);
+            }
+        }
+    } catch (e) {
+        console.log('Update check failed:', e);
     }
 }
 
@@ -555,7 +585,11 @@ async function autoLogin(sessionId) {
 async function handleScan(e) {
     e.preventDefault();
     hideStatus('scanStatus');
-    showLoading("Сканирование канала...");  // Show spinner with backdrop
+    showLoading(i18n.t('scan_progress'));
+
+    // Reset stats section
+    document.getElementById('statsTableContainer').innerHTML = `<p class="placeholder">${i18n.t('stats_placeholder')}</p>`;
+    document.getElementById('statsPagination').style.display = 'none';
     
     const formData = new FormData(e.target);
     const payload = {
@@ -594,7 +628,7 @@ async function handleScan(e) {
         if (task.task_id) {
             currentScanTaskId = task.task_id;
             hideLoading();
-            showDownloadProgress('Сканирование канала...', 0, 0, 0);
+            showDownloadProgress(i18n.t('scan_progress'), 0, 0, 0);
             pollTask(task.task_id);
         } else {
             hideLoading();
@@ -771,6 +805,7 @@ function renderResultsPage(data) {
 
     // Build table with video metadata columns
     const columns = [
+        '', // checkbox column
         i18n.t('col_num'), i18n.t('col_date'), i18n.t('col_author'), i18n.t('col_username'),
         i18n.t('col_duration'), i18n.t('col_size'), i18n.t('col_mime'),
         i18n.t('col_topic'), i18n.t('col_caption')
@@ -788,8 +823,10 @@ function renderResultsPage(data) {
         const audioAttrs = attrs.audio || {};
         const duration = videoAttrs.duration || audioAttrs.duration;
         const fullName = ((sender.first_name || '') + ' ' + (sender.last_name || '')).trim();
+        const msgId = video.message_id;
 
         html += '<tr>';
+        html += '<td><input type="checkbox" class="file-checkbox" data-msg-id="' + msgId + '" onchange="toggleFileSelection(this)"></td>';
         html += '<td>' + (data.start + idx + 1) + '</td>';
         html += '<td>' + (video.date ? new Date(video.date).toLocaleString(locale) : '-') + '</td>';
         html += '<td>' + (fullName || '-') + '</td>';
@@ -804,6 +841,14 @@ function renderResultsPage(data) {
     
     html += '</tbody></table></div>';
     document.getElementById('results').innerHTML = html;
+
+    // Restore checkbox states for already selected files
+    document.querySelectorAll('.file-checkbox').forEach(cb => {
+        const msgId = parseInt(cb.dataset.msgId);
+        if (selectedMessageIds.has(msgId)) {
+            cb.checked = true;
+        }
+    });
 
     // Init column resize on the new table
     const newTable = document.querySelector('#results .stats-table');
@@ -982,6 +1027,30 @@ async function pickFolder() {
     document.body.removeChild(input);
 }
 
+// Handle file checkbox selection
+function toggleFileSelection(checkbox) {
+    const msgId = parseInt(checkbox.dataset.msgId);
+    if (checkbox.checked) {
+        selectedMessageIds.add(msgId);
+    } else {
+        selectedMessageIds.delete(msgId);
+    }
+    updateDownloadButton();
+}
+
+// Update download button based on selection
+function updateDownloadButton() {
+    const btn = document.getElementById('downloadBtn');
+    if (!btn) return;
+    if (selectedMessageIds.size > 0) {
+        btn.textContent = `📥 ${i18n.t('download_selected')} (${selectedMessageIds.size})`;
+        btn.classList.add('download-selected');
+    } else {
+        btn.textContent = `📥 ${i18n.t('download_btn')}`;
+        btn.classList.remove('download-selected');
+    }
+}
+
 // Handle download
 async function handleDownload() {
     const path = document.getElementById('download_path').value;
@@ -1014,28 +1083,39 @@ async function handleDownload() {
     } catch (e) { /* proceed anyway */ }
 
     hideStatus('scanStatus');
-    showLoading("Запуск скачивания...");
-    
+    showLoading(i18n.t('status_download_started'));
+
     try {
         const headers = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-        
-        const res = await fetch('/telegram/api/download', {
+
+        // Check if specific files are selected
+        const useSelected = selectedMessageIds.size > 0;
+        const endpoint = useSelected ? '/telegram/api/download-selected' : '/telegram/api/download';
+
+        const body = {
+            channel_id: channelId,
+            media_type: mediaType,
+            days: days,
+            download_path: path,
+            limit: 1000,
+            delay_min: delayMin,
+            delay_max: delayMax,
+            skip_existing: skipExisting,
+            start_date: currentFilters.start_date || null,
+            end_date: currentFilters.end_date || null
+        };
+
+        // Add message_ids for selected files download
+        if (useSelected) {
+            body.message_ids = Array.from(selectedMessageIds);
+        }
+
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers,
             credentials: 'include',
-            body: JSON.stringify({
-                channel_id: channelId,
-                media_type: mediaType,
-                days: days,
-                download_path: path,
-                limit: 1000,
-                delay_min: delayMin,
-                delay_max: delayMax,
-                skip_existing: skipExisting,
-                start_date: currentFilters.start_date || null,
-                end_date: currentFilters.end_date || null
-            })
+            body: JSON.stringify(body)
         });
         
         const task = await res.json();
@@ -1044,7 +1124,7 @@ async function handleDownload() {
             showStatus('scanStatus', '⏳ ' + (task.detail || i18n.t('status_duplicate_download')), true);
         } else if (task.task_id) {
             hideLoading();
-            showDownloadProgress('Скачивание файлов...', 0, 0, 0);
+            showDownloadProgress(i18n.t('download_title'), 0, 0, 0);
             pollDownloadTask(task.task_id);
         } else {
             hideLoading();
@@ -1073,7 +1153,7 @@ async function pollDownloadTask(taskId) {
             const done = match ? parseInt(match[1]) : 0;
             const total = match ? parseInt(match[2]) : 0;
             const progress = task.progress || (total ? Math.round(done / total * 100) : 0);
-            showDownloadProgress('Скачивание файлов...', progress, done, total);
+            showDownloadProgress(i18n.t('download_title'), progress, done, total);
             setTimeout(() => pollDownloadTask(taskId), 3000);
         } else if (task.status === 'completed') {
             hideDownloadProgress();
