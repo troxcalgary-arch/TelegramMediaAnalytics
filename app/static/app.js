@@ -298,12 +298,13 @@ async function checkForUpdates() {
         if (!res.ok) return;
         const data = await res.json();
         if (data.update_available) {
-            const el = document.getElementById('scanHistorySidebar');
-            if (el) {
+            // Insert after "View history" link
+            const historyLink = document.querySelector('a[href="/telegram/history"]');
+            if (historyLink) {
                 const updateHtml = `<div style="margin-top:10px; padding:8px 10px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; font-size:12px;">
                     ⬆️ <strong>${i18n.t('update_available')}</strong>
                 </div>`;
-                el.insertAdjacentHTML('afterend', updateHtml);
+                historyLink.insertAdjacentHTML('afterend', updateHtml);
             }
         }
     } catch (e) {
