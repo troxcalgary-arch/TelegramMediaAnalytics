@@ -154,6 +154,29 @@ const translations = {
         col_videos: "Видео",
         col_total_mb: "Всего MB",
         col_last_upload: "Последняя загрузка",
+
+        // Additional auth status messages
+        save_config: "💾 Сохранить конфигурацию",
+        error_fill_all: "Заполните все поля",
+        status_code_sent: "⏳ Отправка кода в Telegram...",
+        status_code_check: "⏳ Проверка кода...",
+        auth_code_sent: "✅ Код отправлен. Проверьте Telegram (не SMS!). Введите код ниже.",
+        error_enter_code: "Введите 5-значный код",
+        error_session_not_found: "Сессия не найдена. Начните заново.",
+        status_2fa_required: "🔐 Требуется пароль двухфакторной аутентификации",
+        error_wrong_code: "Неверный код",
+        error_enter_2fa: "Введите пароль 2FA",
+        status_2fa_check: "⏳ Проверка пароля 2FA...",
+        error_wrong_2fa: "Неверный пароль 2FA",
+        status_logged_out: "✅ Вы вышли из аккаунта",
+        status_loading_stats: "Загрузка статистики...",
+        status_duplicate_download_detail: "Для канала «{channel}» ({id}) уже выполняется скачивание в фоне — дождитесь завершения.",
+
+        // Column names for renderTaskResults
+        col_name: "Пользователь",
+        col_last: "Последнее",
+        col_type: "Тип",
+        col_duration_suffix: "с",
     },
 
     en: {
@@ -309,6 +332,29 @@ const translations = {
         col_videos: "Videos",
         col_total_mb: "Total MB",
         col_last_upload: "Last upload",
+
+        // Additional auth status messages
+        save_config: "💾 Save configuration",
+        error_fill_all: "Please fill in all fields",
+        status_code_sent: "⏳ Sending code to Telegram...",
+        status_code_check: "⏳ Verifying code...",
+        auth_code_sent: "✅ Code sent. Check Telegram (not SMS!). Enter the code below.",
+        error_enter_code: "Enter a 5-digit code",
+        error_session_not_found: "Session not found. Please start over.",
+        status_2fa_required: "🔐 Two-factor authentication password required",
+        error_wrong_code: "Invalid code",
+        error_enter_2fa: "Enter 2FA password",
+        status_2fa_check: "⏳ Verifying 2FA password...",
+        error_wrong_2fa: "Invalid 2FA password",
+        status_logged_out: "✅ You have been logged out",
+        status_loading_stats: "Loading statistics...",
+        status_duplicate_download_detail: "Download for channel \"{channel}\" ({id}) is already running in background — please wait for completion.",
+
+        // Column names for renderTaskResults
+        col_name: "User",
+        col_last: "Last",
+        col_type: "Type",
+        col_duration_suffix: "s",
     }
 };
 
@@ -445,6 +491,25 @@ translations.fr = {
     col_videos: "Videos",
     col_total_mb: "Total MB",
     col_last_upload: "Dernier envoi",
+    save_config: "Sauvegarder la configuration",
+    error_fill_all: "Veuillez remplir tous les champs",
+    status_code_sent: "Envoi du code a Telegram...",
+    status_code_check: "Verification du code...",
+    auth_code_sent: "Code envoye. Verifiez Telegram (pas SMS!). Entrez le code ci-dessous.",
+    error_enter_code: "Entrez un code a 5 chiffres",
+    error_session_not_found: "Session introuvable. Veuillez recommencer.",
+    status_2fa_required: "Mot de passe d'authentification a deux facteurs requis",
+    error_wrong_code: "Code incorrect",
+    error_enter_2fa: "Entrez le mot de passe 2FA",
+    status_2fa_check: "Verification du mot de passe 2FA...",
+    error_wrong_2fa: "Mot de passe 2FA incorrect",
+    status_logged_out: "Vous etes deconnecte",
+    status_loading_stats: "Chargement des statistiques...",
+    status_duplicate_download_detail: "Le telechargement du canal {channel} ({id}) est deja en cours - veuillez patienter.",
+    col_name: "Utilisateur",
+    col_last: "Dernier",
+    col_type: "Type",
+    col_duration_suffix: "s",
 };
 
 translations.he = {
@@ -577,6 +642,25 @@ translations.he = {
     col_videos: "וידאו",
     col_total_mb: "סהכ MB",
     col_last_upload: "העלאה אחרונה",
+    save_config: "שמור הגדרות",
+    error_fill_all: "נא למלא את כל השדות",
+    status_code_sent: "שולח קוד לטגרם...",
+    status_code_check: "בודק קוד...",
+    auth_code_sent: "✅ קוד נשלח. בדוק טגרם (לא SMS!). הזן את הקוד למטה.",
+    error_enter_code: "הזן קוד בן 5 ספרות",
+    error_session_not_found: "הפעלה לא נמצאה. התחל מחדש.",
+    status_2fa_required: "נדרשת סיסמת אימות דו-שלבי",
+    error_wrong_code: "קוד שגוי",
+    error_enter_2fa: "הזן סיסמת 2FA",
+    status_2fa_check: "בודק סיסמת 2FA...",
+    error_wrong_2fa: "סיסמת 2FA שגויה",
+    status_logged_out: "✅ התנתקת בהצלחה",
+    status_loading_stats: "טוען סטטיסטיקה...",
+    status_duplicate_download_detail: "הורדה של הערוץ {channel} ({id}) כבר מתבצעת — נא להמתין.",
+    col_name: "משתמש",
+    col_last: "אחרון",
+    col_type: "סוג",
+    col_duration_suffix: "ש",
 };
 
 const supportedLocales = {
