@@ -894,7 +894,7 @@ async def start_download(
         if t.get("status") == "running" and t.get("channel_id") == payload.channel_id:
             raise HTTPException(
                 409,
-                detail=f"Скачивание для канала «{t.get('channel_title', payload.channel_id)}» ({payload.channel_id}) уже выполняется в фоне (Task ID: {tid})"
+                detail=f"Download for channel '{t.get('channel_title', payload.channel_id)}' ({payload.channel_id}) is already running in background (Task ID: {tid})"
             )
 
     task_id = _make_task_id()
