@@ -390,10 +390,10 @@ async function handleConnect() {
             document.getElementById('auth_code').focus();
             showStatus('connectStatus', '✅ Код отправлен. Проверьте Telegram (не SMS!). Введите код ниже.', false);
         } else {
-            showStatus('connectStatus', '❌ ' + (data.detail || 'Ошибка отправки кода'), true);
+            showStatus('connectStatus', i18n.t('status_error') + ' ' + (data.detail || i18n.t('error_send_code')), true);
         }
     } catch (err) {
-        showStatus('connectStatus', '❌ Ошибка сети: ' + err.message, true);
+        showStatus('connectStatus', i18n.t('status_network_error') + ' ' + err.message, true);
     }
 }
 
@@ -445,7 +445,7 @@ async function handleVerifyCode() {
             showStatus('connectStatus', '❌ ' + (data.detail || 'Неверный код'), true);
         }
     } catch (err) {
-        showStatus('connectStatus', '❌ Ошибка сети: ' + err.message, true);
+        showStatus('connectStatus', i18n.t('status_network_error') + ' ' + err.message, true);
     }
 }
 
@@ -488,7 +488,7 @@ async function handleVerify2FA() {
             showStatus('connectStatus', '❌ ' + (data.detail || 'Неверный пароль 2FA'), true);
         }
     } catch (err) {
-        showStatus('connectStatus', '❌ Ошибка сети: ' + err.message, true);
+        showStatus('connectStatus', i18n.t('status_network_error') + ' ' + err.message, true);
     }
 }
 
@@ -534,7 +534,7 @@ async function handleLogout() {
         localStorage.removeItem('tg_auth_token');
         showStatus('connectStatus', '✅ Вы вышли из аккаунта');
     } catch (e) {
-        showStatus('connectStatus', '❌ Ошибка выхода: ' + e.message, true);
+        showStatus('connectStatus', i18n.t('error_logout') + ' ' + e.message, true);
     }
 }
 
@@ -689,7 +689,7 @@ async function pollTask(taskId) {
             hideDownloadProgress();
             hideLoading();
             showErrorModal(i18n.t('status_error') + ' ' + task.message);
-            showStatus('scanStatus', '❌ Ошибка: ' + task.message, true);
+            showStatus('scanStatus', i18n.t('status_error') + ' ' + task.message, true);
         }
     } catch (err) {
         hideDownloadProgress();
@@ -915,7 +915,7 @@ async function loadStats() {
         hideStatus('statsStatus');
     } catch (err) {
         hideLoading();
-        showStatus('statsStatus', '❌ Ошибка: ' + err.message, true);
+        showStatus('statsStatus', i18n.t('status_error') + ' ' + err.message, true);
         showErrorModal(err.message);
     }
 }
@@ -1139,11 +1139,11 @@ async function handleDownload() {
             pollDownloadTask(task.task_id);
         } else {
             hideLoading();
-            showStatus('scanStatus', '❌ Ошибка запуска скачивания', true);
+            showStatus('scanStatus', i18n.t('error_scan_start'), true);
         }
     } catch (err) {
         hideLoading();
-        showStatus('scanStatus', '❌ Ошибка: ' + err.message, true);
+        showStatus('scanStatus', i18n.t('status_error') + ' ' + err.message, true);
     }
 }
 
@@ -1171,7 +1171,7 @@ async function pollDownloadTask(taskId) {
             showStatus('scanStatus', '✅ ' + task.message);
         } else if (task.status === 'error') {
             hideDownloadProgress();
-            showStatus('scanStatus', '❌ Ошибка скачивания: ' + task.message, true);
+            showStatus('scanStatus', i18n.t('error_download') + ' ' + task.message, true);
             showErrorModal(task.message);
         }
     } catch (err) {
