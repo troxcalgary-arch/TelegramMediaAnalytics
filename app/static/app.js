@@ -10,7 +10,7 @@ let currentAuthSessionId = null;
 let selectedMessageIds = new Set();
 
 // Loading overlay functions
-function showLoading(text = "Подключение...") {
+function showLoading(text = i18n.t('loading_connect')) {
     const overlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
     if (overlay) {
@@ -356,11 +356,11 @@ async function handleConnect() {
     const phone = document.getElementById('phone').value;
     
     if (!apiId || !apiHash || !phone) {
-        showStatus('connectStatus', '❌ Заполните все поля', true);
+        showStatus('connectStatus', '❌ ' + i18n.t('error_fill_all'), true);
         return;
     }
     
-    showStatus('connectStatus', '⏳ Отправка кода в Telegram...');
+    showStatus('connectStatus', i18n.t('status_code_sent'));
     
     try {
         const formData = new FormData();
@@ -388,7 +388,7 @@ async function handleConnect() {
             document.getElementById('connectBtn').disabled = true;
 
             document.getElementById('auth_code').focus();
-            showStatus('connectStatus', '✅ Код отправлен. Проверьте Telegram (не SMS!). Введите код ниже.', false);
+            showStatus('connectStatus', i18n.t('auth_code_sent'), false);
         } else {
             showStatus('connectStatus', i18n.t('status_error') + ' ' + (data.detail || i18n.t('error_send_code')), true);
         }
@@ -402,16 +402,16 @@ async function handleVerifyCode() {
     const code = document.getElementById('auth_code').value.trim();
     
     if (!code || code.length < 5) {
-        showStatus('connectStatus', '❌ Введите 5-значный код', true);
+        showStatus('connectStatus', '❌ ' + i18n.t('error_enter_code'), true);
         return;
     }
     
     if (!currentAuthSessionId) {
-        showStatus('connectStatus', '❌ Сессия не найдена. Начните заново.', true);
+        showStatus('connectStatus', '❌ ' + i18n.t('error_session_not_found'), true);
         return;
     }
     
-    showStatus('connectStatus', '⏳ Проверка кода...');
+    showStatus('connectStatus', i18n.t('status_code_check'));
     
     try {
         const formData = new FormData();
@@ -436,13 +436,13 @@ async function handleVerifyCode() {
                 document.getElementById('authCodeStep').style.display = 'none';
                 document.getElementById('twoFAStep').style.display = 'block';
                 document.getElementById('twofa_password').focus();
-                showStatus('connectStatus', '🔐 Требуется пароль двухфакторной аутентификации', false);
+                showStatus('connectStatus', i18n.t('status_2fa_required'), false);
             } else {
                 // Success!
                 showAuthSuccess(data);
             }
         } else {
-            showStatus('connectStatus', '❌ ' + (data.detail || 'Неверный код'), true);
+            showStatus('connectStatus', '❌ ' + (data.detail || i18n.t('error_wrong_code')), true);
         }
     } catch (err) {
         showStatus('connectStatus', i18n.t('status_network_error') + ' ' + err.message, true);
@@ -454,16 +454,16 @@ async function handleVerify2FA() {
     const password = document.getElementById('twofa_password').value;
     
     if (!password) {
-        showStatus('connectStatus', '❌ Введите пароль 2FA', true);
+        showStatus('connectStatus', '❌ ' + i18n.t('error_enter_2fa'), true);
         return;
     }
     
     if (!currentAuthSessionId) {
-        showStatus('connectStatus', '❌ Сессия не найдена. Начните заново.', true);
+        showStatus('connectStatus', '❌ ' + i18n.t('error_session_not_found'), true);
         return;
     }
     
-    showStatus('connectStatus', '⏳ Проверка пароля 2FA...');
+    showStatus('connectStatus', i18n.t('status_2fa_check'));
     
     try {
         const formData = new FormData();
@@ -485,7 +485,7 @@ async function handleVerify2FA() {
         if (res.ok) {
             showAuthSuccess(data);
         } else {
-            showStatus('connectStatus', '❌ ' + (data.detail || 'Неверный пароль 2FA'), true);
+            showStatus('connectStatus', '❌ ' + (data.detail || i18n.t('error_wrong_2fa')), true);
         }
     } catch (err) {
         showStatus('connectStatus', i18n.t('status_network_error') + ' ' + err.message, true);
@@ -532,7 +532,7 @@ async function handleLogout() {
         currentAuthSessionId = null;
         authToken = null;
         localStorage.removeItem('tg_auth_token');
-        showStatus('connectStatus', '✅ Вы вышли из аккаунта');
+        showStatus('connectStatus', i18n.t('status_logged_out'));
     } catch (e) {
         showStatus('connectStatus', i18n.t('error_logout') + ' ' + e.message, true);
     }
@@ -673,7 +673,7 @@ async function pollTask(taskId) {
             const scanned = scannedMatch ? parseInt(scannedMatch[1]) : 0;
             const found = foundMatch ? parseInt(foundMatch[1]) : 0;
             showDownloadProgress(
-                task.message || 'Сканирование...',
+                task.message || i18n.t('scan_progress'),
                 task.progress || 0,
                 found,
                 scanned
@@ -706,23 +706,23 @@ function renderTaskResults(task) {
         // Video stats format
         rows = task.stats.map((stat, i) => ({
             '#': i + 1,
-            'Пользователь': stat.name || 'ID:' + stat.user_id,
-            'Username': stat.username ? '@' + stat.username : '-',
-            'Видео': stat.video_count,
-            'Последнее': stat.last_date ? new Date(stat.last_date).toLocaleString('ru-RU') : '-'
+            [i18n.t('col_name')]: stat.name || 'ID:' + stat.user_id,
+            [i18n.t('col_username')]: stat.username ? '@' + stat.username : '-',
+            [i18n.t('col_videos')]: stat.video_count,
+            [i18n.t('col_last')]: stat.last_date ? new Date(stat.last_date).toLocaleString(i18n.locale()) : '-'
         }));
     } else if (task.messages) {
         // Raw messages format
         rows = task.messages.map((msg, i) => ({
             '#': i + 1,
             'ID': msg.id,
-            'Дата': msg.date ? new Date(msg.date).toLocaleString('ru-RU') : '-',
-            'Автор': msg.sender_name || 'ID:' + msg.sender_id,
-            'Тип': msg.media_type,
-            'Размер': msg.size ? formatBytes(msg.size) : '-'
+            [i18n.t('col_date')]: msg.date ? new Date(msg.date).toLocaleString(i18n.locale()) : '-',
+            [i18n.t('col_author')]: msg.sender_name || 'ID:' + msg.sender_id,
+            [i18n.t('col_type')]: msg.media_type,
+            [i18n.t('col_size')]: msg.size ? formatBytes(msg.size) : '-'
         }));
     } else {
-        rows = [{'#': 1, 'Пользователь': 'Нет данных', 'Видео': 0}];
+        rows = [{'#': 1, [i18n.t('col_name')]: i18n.t('no_data'), [i18n.t('col_videos')]: 0}];
     }
     
     currentResults = rows;
@@ -842,7 +842,7 @@ function renderResultsPage(data) {
         html += '<td>' + (video.date ? new Date(video.date).toLocaleString(locale) : '-') + '</td>';
         html += '<td>' + (fullName || '-') + '</td>';
         html += '<td>' + (sender.username ? '@' + sender.username : (sender.id ? 'ID:' + sender.id : '-')) + '</td>';
-        html += '<td>' + (duration ? duration + 'с' : '-') + '</td>';
+        html += '<td>' + (duration ? duration + i18n.t('col_duration_suffix') : '-') + '</td>';
         html += '<td>' + formatBytes(v.size) + '</td>';
         html += '<td>' + (v.mime_type || '-') + '</td>';
         html += '<td>' + (video.topic_id || '-') + '</td>';
@@ -885,7 +885,7 @@ function changePage(page) {
 // Load and display statistics by author with pagination
 async function loadStats() {
     hideStatus('statsStatus');
-    showLoading("Загрузка статистики...");
+    showLoading(i18n.t('status_loading_stats'));
     try {
         const headers = {};
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
@@ -1087,7 +1087,7 @@ async function handleDownload() {
             const dup = (actData.tasks || []).find(t => t.channel_id === channelId);
             if (dup) {
                 showStatus('scanStatus',
-                    `⏳ Для канала «${dup.channel_title}» (${dup.channel_id}) уже выполняется скачивание в фоне — дождитесь завершения.`, true);
+                    '⏳ ' + i18n.t('status_duplicate_download_detail').replace('{channel}', dup.channel_title).replace('{id}', dup.channel_id), true);
                 return;
             }
         }
@@ -1184,7 +1184,7 @@ async function pollDownloadTask(taskId) {
 // ==================== UTILITIES ====================
 
 // Loading overlay (spinner with backdrop)
-function showLoading(text = "Подключение...") {
+function showLoading(text = i18n.t('loading_connect')) {
     const overlay = document.getElementById('loadingOverlay');
     const textEl = document.getElementById('loadingText');
     if (overlay && textEl) {
@@ -1255,7 +1255,7 @@ function renderPage() {
     const totalPages = Math.ceil(currentResults.length / currentFilters.per_page);
     
     if (pageData.length === 0) {
-        document.getElementById('results').innerHTML = '<p class="placeholder">Нет данных для отображения</p>';
+        document.getElementById('results').innerHTML = '<p class="placeholder">' + i18n.t('no_data') + '</p>';
         return;
     }
     
