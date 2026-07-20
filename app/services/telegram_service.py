@@ -6,7 +6,7 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import InputMessagesFilterVideo, InputMessagesFilterDocument, InputMessagesFilterVoice
 from telethon.tl.types import InputPeerChannel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict
 import os
 import asyncio
@@ -82,7 +82,7 @@ class TelegramService:
         # Calculate start date
         offset_date = None
         if days:
-            offset_date = datetime.utcnow() - timedelta(days=days)
+            offset_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         messages = []
         offset_id = 0
