@@ -117,16 +117,14 @@ class TelegramService:
                 # Date range filter
                 if start_date:
                     try:
-                        from datetime import datetime as dt
-                        start_dt = dt.strptime(start_date, "%Y-%m-%d")
+                        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
                         if msg.date.replace(tzinfo=None) < start_dt:
                             continue
                     except ValueError:
                         pass
                 if end_date:
                     try:
-                        from datetime import datetime as dt, timedelta
-                        end_dt = dt.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
                         if msg.date.replace(tzinfo=None) >= end_dt:
                             continue
                     except ValueError:
