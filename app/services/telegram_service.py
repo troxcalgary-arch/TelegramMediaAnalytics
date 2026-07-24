@@ -6,13 +6,18 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import InputMessagesFilterVideo, InputMessagesFilterDocument, InputMessagesFilterVoice
 from telethon.tl.types import InputPeerChannel
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import os
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class DownloadCancelled(Exception):
+    """Raised when the user requests download cancellation."""
+
 
 class TelegramService:
     def __init__(self, api_id: int, api_hash: str, phone: str, session_name: str = None):
@@ -82,7 +87,7 @@ class TelegramService:
         # Calculate start date
         offset_date = None
         if days:
-            offset_date = datetime.now(timezone.utc) - timedelta(days=days)
+            offset_date = datetime.utcnow() - timedelta(days=days)
         
         messages = []
         offset_id = 0
@@ -117,14 +122,16 @@ class TelegramService:
                 # Date range filter
                 if start_date:
                     try:
-                        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                        from datetime import datetime as dt
+                        start_dt = dt.strptime(start_date, "%Y-%m-%d")
                         if msg.date.replace(tzinfo=None) < start_dt:
                             continue
                     except ValueError:
                         pass
                 if end_date:
                     try:
-                        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                        from datetime import datetime as dt, timedelta
+                        end_dt = dt.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
                         if msg.date.replace(tzinfo=None) >= end_dt:
                             continue
                     except ValueError:
@@ -346,7 +353,8 @@ class TelegramService:
         channel=None,
         progress_callback=None,
         delay_range: tuple = (2.0, 5.0),
-        skip_existing: bool = True
+        skip_existing: bool = True,
+        cancel_callback=None
     ) -> Dict:
         """
         Скачивает все медиа файлы с защитой от флуд-контроля
@@ -365,6 +373,9 @@ class TelegramService:
         total = len(messages)
 
         for i, msg_data in enumerate(messages):
+            if cancel_callback and cancel_callback():
+                return {"downloaded": downloaded, "skipped": skipped, "errors": errors, "total": total, "cancelled": True}
+
             msg_id = msg_data["message_id"]
             v = msg_data.get("video", {})
             mime = v.get("mime_type", "") or ""
@@ -408,7 +419,11 @@ class TelegramService:
                     errors += 1
                     continue
 
-                await self.client.download_media(real_msg, file=file_path)
+                def media_progress(_current: int, _total: int):
+                    if cancel_callback and cancel_callback():
+                        raise DownloadCancelled()
+
+                await self.client.download_media(real_msg, file=file_path, progress_callback=media_progress)
                 downloaded += 1
 
                 # Write metadata .md sidecar file
@@ -453,15 +468,22 @@ class TelegramService:
                 logger.warning(f"FloodWait: нужно подождать {wait_time} сек...")
                 await asyncio.sleep(wait_time)
                 try:
+                    if cancel_callback and cancel_callback():
+                        raise DownloadCancelled()
                     real_msg = await self.client.get_messages(channel, ids=msg_id) if channel else None
                     if real_msg:
                         await self.client.download_media(real_msg, file=file_path)
                         downloaded += 1
                         if progress_callback:
                             progress_callback(downloaded + skipped, total)
+                except DownloadCancelled:
+                    raise
                 except Exception as retry_e:
                     errors += 1
                     logger.error(f"Ошибка после FloodWait: {retry_e}")
+
+            except DownloadCancelled:
+                return {"downloaded": downloaded, "skipped": skipped, "errors": errors, "total": total, "cancelled": True}
 
             except Exception as e:
                 errors += 1
