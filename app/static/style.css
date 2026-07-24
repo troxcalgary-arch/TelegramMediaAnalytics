@@ -422,6 +422,22 @@ button:disabled {
     white-space: nowrap;
 }
 
+.folder-row button.remote-disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    color: rgba(220, 226, 235, 0.72) !important;
+    border-color: rgba(140, 150, 165, 0.28) !important;
+    background: rgba(90, 96, 108, 0.36) !important;
+    box-shadow: none !important;
+}
+
+.folder-row button.remote-disabled:hover {
+    transform: none;
+    border-color: rgba(140, 150, 165, 0.28) !important;
+    background: rgba(90, 96, 108, 0.36) !important;
+    box-shadow: none !important;
+}
+
 /* Inline step panels */
 #authCodeStep,
 #twoFAStep,
@@ -780,6 +796,26 @@ small {
     font-family: var(--mono);
     font-size: 22px;
     font-weight: 800;
+}
+
+.download-stop-btn {
+    display: none;
+    width: 100%;
+    margin-top: 18px;
+    border-color: rgba(255, 107, 132, 0.42) !important;
+    background: rgba(112, 30, 48, 0.72) !important;
+    color: #ffd1da !important;
+    box-shadow: none !important;
+}
+
+.download-stop-btn:hover:not(:disabled) {
+    border-color: rgba(255, 107, 132, 0.72) !important;
+    background: rgba(150, 40, 62, 0.82) !important;
+}
+
+.download-stop-btn:disabled {
+    cursor: wait;
+    opacity: 0.7;
 }
 
 /* Error modal */

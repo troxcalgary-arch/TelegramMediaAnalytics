@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Telegram Analytics</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/fr.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/he.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 </head>
 <body>
@@ -25,6 +29,7 @@
             </div>
             <div class="download-progress-text" id="downloadProgressText">0 / 0</div>
             <div class="download-percent" id="downloadPercent">0%</div>
+            <button type="button" class="download-stop-btn" id="stopDownloadBtn" data-i18n="stop_download">Stop downloading</button>
         </div>
     </div>
 
