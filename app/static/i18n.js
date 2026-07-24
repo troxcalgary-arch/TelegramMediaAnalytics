@@ -59,6 +59,7 @@ const translations = {
         delay_recommendation: "Рекомендуется: мин 2 сек, макс 5 сек. Случайная задержка между файлами защищает от FloodWait. При больших объёмах увеличьте до 5-10 сек.",
         scan_btn: "Запустить сканирование",
         error_select_folder: "Сначала выберите папку для скачивания",
+        remote_folder_disabled: "Вы не можете сменить папку для скачивания, так как сервис запущен на удаленном хосте. Файлы будут скачаны в папку на сервере.",
 
         // Stats
         stats_title: "📈 Статистика по авторам",
@@ -74,6 +75,7 @@ const translations = {
         stats_load_btn: "Загрузить статистику",
         stats_placeholder: 'Нажмите «Загрузить статистику» для получения данных по авторам...',
         stats_total_videos: "Всего видео:",
+        stats_total_media: "Всего медиа:",
         stats_unique_authors: "Уникальных авторов:",
 
         // Results
@@ -98,6 +100,9 @@ const translations = {
         // Overlays
         loading_connect: "Подключение...",
         download_title: "Скачивание файлов...",
+        stop_download: "Остановить скачивание",
+        stopping_download: "Остановка скачивания...",
+        download_cancelled: "Скачивание остановлено пользователем",
         scan_progress: "Сканирование канала...",
         error_title: "❌ Ошибка",
         error_close: "Закрыть",
@@ -152,6 +157,7 @@ const translations = {
         // Stats columns
         col_user: "Пользователь",
         col_videos: "Видео",
+        col_media: "Медиа",
         col_total_mb: "Всего MB",
         col_last_upload: "Последняя загрузка",
 
@@ -237,6 +243,7 @@ const translations = {
         delay_recommendation: "Recommended: min 2 sec, max 5 sec. Random delay between files protects from FloodWait. For large volumes increase to 5-10 sec.",
         scan_btn: "Start scanning",
         error_select_folder: "Please select a download folder first",
+        remote_folder_disabled: "You cannot change the download folder because the service is running on a remote host. Files will be downloaded to the server-side folder.",
 
         // Stats
         stats_title: "📈 Author Statistics",
@@ -252,6 +259,7 @@ const translations = {
         stats_load_btn: "Load statistics",
         stats_placeholder: 'Click "Load statistics" to get author data...',
         stats_total_videos: "Total videos:",
+        stats_total_media: "Total media:",
         stats_unique_authors: "Unique authors:",
 
         // Results
@@ -276,6 +284,9 @@ const translations = {
         // Overlays
         loading_connect: "Connecting...",
         download_title: "Downloading files...",
+        stop_download: "Stop downloading",
+        stopping_download: "Stopping download...",
+        download_cancelled: "Download stopped by user",
         scan_progress: "Scanning channel...",
         error_title: "❌ Error",
         error_close: "Close",
@@ -330,6 +341,7 @@ const translations = {
         // Stats columns
         col_user: "User",
         col_videos: "Videos",
+        col_media: "Media",
         col_total_mb: "Total MB",
         col_last_upload: "Last upload",
 

@@ -22,7 +22,7 @@ from app.models.auth_models import (
     create_access_token, verify_password, create_hash,
     get_current_user, oauth2_scheme
 )
-from app.services.telegram_service import TelegramService, get_telegram_service
+from app.services.telegram_service import DownloadCancelled, TelegramService, get_telegram_service
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -92,6 +92,92 @@ def load_all_results() -> List[Dict[str, Any]]:
         except:
             pass
     return results
+
+
+def _is_video_message(message: Dict[str, Any]) -> bool:
+    """Return True when a serialized media message is an actual video."""
+    mime_type = (message.get("video") or {}).get("mime_type") or ""
+    return mime_type.startswith("video/")
+
+
+def _build_video_author_stats(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build legacy author stats from already-scanned video messages."""
+    stats: Dict[int, Dict[str, Any]] = {}
+    for message in messages:
+        sid = message.get("sender_id")
+        if not sid:
+            continue
+
+        sender = message.get("sender") or {}
+        if sender.get("username"):
+            name = f"@{sender['username']}"
+        else:
+            name = " ".join(
+                part for part in [sender.get("first_name"), sender.get("last_name")] if part
+            ) or f"ID:{sid}"
+
+        if sid not in stats:
+            stats[sid] = {
+                "user_id": sid,
+                "name": name,
+                "video_count": 0,
+                "last_date": 0,
+            }
+
+        stats[sid]["video_count"] += 1
+        stats[sid]["last_date"] = max(stats[sid]["last_date"], message.get("date_unix") or 0)
+
+    return sorted(stats.values(), key=lambda item: item["video_count"], reverse=True)
+
+
+def _write_selected_message_metadata(real_msg, file_path: str, file_name: str, topic_id: Optional[int]) -> None:
+    """Write a Markdown sidecar file next to a selected downloaded media file."""
+    sender = getattr(real_msg, "sender", None)
+    sender_id = real_msg.sender_id
+    username = getattr(sender, "username", None) if sender else None
+    first_name = getattr(sender, "first_name", None) if sender else None
+    last_name = getattr(sender, "last_name", None) if sender else None
+    media = getattr(real_msg, "file", None)
+    mime = getattr(media, "mime_type", None) or ""
+    size = getattr(media, "size", None) or 0
+    document = getattr(getattr(real_msg, "media", None), "document", None)
+    photo = getattr(real_msg, "photo", None)
+    file_id = getattr(document, "id", None) or getattr(photo, "id", None) or "N/A"
+
+    md_path = os.path.splitext(file_path)[0] + ".md"
+    meta_lines = [
+        f"# Metadata: {file_name}",
+        "",
+        f"- **Message ID**: {real_msg.id}",
+        f"- **Sender ID**: {sender_id}",
+        f"- **Username**: @{username}" if username else "- **Username**: N/A",
+        f"- **Name**: {((first_name or '') + ' ' + (last_name or '')).strip()}",
+        f"- **Date**: {real_msg.date.isoformat() if real_msg.date else 'N/A'}",
+        f"- **Caption**: {real_msg.text or ''}",
+        f"- **MIME**: {mime}",
+        f"- **Size**: {size} bytes",
+        f"- **File ID**: {file_id}",
+        f"- **Topic ID**: {topic_id or 'N/A'}",
+    ]
+
+    if real_msg.video:
+        v = real_msg.video
+        if getattr(v, "duration", None): meta_lines.append(f"- **Duration**: {v.duration}s")
+        if getattr(v, "width", None) and getattr(v, "height", None):
+            meta_lines.append(f"- **Resolution**: {v.width}x{v.height}")
+    if real_msg.audio:
+        a = real_msg.audio
+        if getattr(a, "duration", None): meta_lines.append(f"- **Duration**: {a.duration}s")
+        if getattr(a, "title", None): meta_lines.append(f"- **Title**: {a.title}")
+        if getattr(a, "performer", None): meta_lines.append(f"- **Performer**: {a.performer}")
+    if real_msg.document:
+        for attr in getattr(real_msg.document, "attributes", []) or []:
+            if hasattr(attr, "file_name") and attr.file_name:
+                meta_lines.append(f"- **Original filename**: {attr.file_name}")
+                break
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(meta_lines) + "\n")
 
 
 # ---------- Pydantic schemas ----------
@@ -627,12 +713,20 @@ async def get_videos_stats(
     """Returns aggregated statistics by author for a specific channel with pagination."""
     result = load_scan_result(str(channel_id))
 
+    media_type = "video"
     if not result:
         # Fallback to old metadata files - for full channel, use chat file
         chat_id = int(channel_id) if str(channel_id).lstrip('-').isdigit() else -1001911644885
         videos = await load_video_metadata(chat_id, topic_id=None)
     else:
+        media_type = result.get("media_type") or "video"
         videos = result.get("messages", [])
+        if "media_type" not in result and any(not _is_video_message(v) for v in videos):
+            media_type = "all"
+
+    if media_type == "video":
+        videos = [v for v in videos if _is_video_message(v)]
+    video_count = sum(1 for v in videos if _is_video_message(v))
 
     stats = {}
     for v in videos:
@@ -693,7 +787,9 @@ async def get_videos_stats(
     page_stats = sorted_stats[start:end]
 
     return {
-        "total_videos": len(videos),
+        "total_videos": video_count,
+        "total_media": len(videos),
+        "media_type": media_type,
         "unique_authors": len(stats),
         "channel_id": channel_id,
         "page": page,
@@ -742,9 +838,10 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
         )
 
         if media_type == "video":
-            stats = await service.get_user_video_stats(channel, days=days)
+            stats = _build_video_author_stats(messages)
             result = {
                 "status": "completed",
+                "media_type": media_type,
                 "stats": stats,
                 "message": f"Found {len(messages)} videos from {len(stats)} authors",
                 "messages": messages
@@ -752,6 +849,7 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
         else:
             result = {
                 "status": "completed",
+                "media_type": media_type,
                 "messages_count": len(messages),
                 "message": f"Found {len(messages)} {media_type} messages",
                 "messages": messages
@@ -785,7 +883,7 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
                              download_path: str, limit: int, delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True,
                              session_name: Optional[str] = None,
                              start_date: Optional[str] = None, end_date: Optional[str] = None):
-    scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Preparing download..."}
+    scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Preparing download...", "cancel_requested": False}
     logger.info(f"[Task {task_id}] Starting download for channel {channel_id}, session={session_name}")
     try:
         service = TelegramService(api_id, api_hash, phone, session_name)
@@ -820,14 +918,28 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
         )
 
         def progress_cb(done: int, total: int):
+            if scan_tasks.get(task_id, {}).get("cancel_requested"):
+                raise DownloadCancelled()
             scan_tasks[task_id]["progress"] = int(done / total * 100) if total else 0
             scan_tasks[task_id]["message"] = f"Downloading {done}/{total}..."
 
         result = await service.download_all_media(
             messages, channel_dir, channel=channel, progress_callback=progress_cb,
             delay_range=(delay_min, delay_max),
-            skip_existing=skip_existing
+            skip_existing=skip_existing,
+            cancel_callback=lambda: scan_tasks.get(task_id, {}).get("cancel_requested", False)
         )
+        if result.get("cancelled"):
+            scan_tasks[task_id] = {
+                "status": "cancelled",
+                "downloaded": result["downloaded"],
+                "skipped": result.get("skipped", 0),
+                "errors": result["errors"],
+                "path": channel_dir,
+                "message": f"Download stopped. Downloaded {result['downloaded']} files, skipped {result.get('skipped', 0)}, {result['errors']} errors"
+            }
+            await service.disconnect()
+            return
         scan_tasks[task_id] = {
             "status": "completed",
             "downloaded": result["downloaded"],
@@ -838,6 +950,13 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
         }
         logger.info(f"[Task {task_id}] Download completed: {scan_tasks[task_id].get('message', 'done')}")
         await service.disconnect()
+    except DownloadCancelled:
+        logger.info(f"[Task {task_id}] Download cancelled by user")
+        scan_tasks[task_id] = {"status": "cancelled", "message": "Download stopped by user"}
+        try:
+            await service.disconnect()
+        except Exception:
+            pass
     except Exception as e:
         logger.exception(f"[Task {task_id}] Download error: {e}")
         scan_tasks[task_id] = {"status": "error", "message": str(e)}
@@ -949,7 +1068,13 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
     import random
     from telethon.errors import FloodWaitError
 
-    scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Connecting...", "channel_id": channel_id}
+    scan_tasks[task_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": "Connecting...",
+        "channel_id": channel_id,
+        "cancel_requested": False,
+    }
     logger.info(f"[Task {task_id}] Starting selected download: {len(message_ids)} files")
 
     try:
@@ -961,7 +1086,7 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
             await service.disconnect()
             return
 
-        channel, _ = await service.get_channel(channel_id)
+        channel, topic_id = await service.get_channel(channel_id)
         channel_title = getattr(channel, "title", None) or channel_id
         scan_tasks[task_id]["channel_title"] = channel_title
 
@@ -973,16 +1098,44 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
         channel_dir = os.path.join(download_path, safe_title)
         os.makedirs(channel_dir, exist_ok=True)
 
+        selected_items = []
+        missing_messages = 0
+        scan_tasks[task_id]["message"] = "Preparing selected files..."
+        for index, msg_id in enumerate(message_ids):
+            if scan_tasks.get(task_id, {}).get("cancel_requested"):
+                raise DownloadCancelled()
+            real_msg = await service.client.get_messages(channel, ids=msg_id)
+            if not real_msg:
+                missing_messages += 1
+            selected_items.append({
+                "id": msg_id,
+                "message": real_msg,
+                "size": getattr(getattr(real_msg, "file", None), "size", None) if real_msg else 0,
+            })
+            scan_tasks[task_id]["message"] = f"Preparing {index + 1}/{len(message_ids)}..."
+
         total = len(message_ids)
+        total_bytes = sum(item["size"] or 0 for item in selected_items)
+        completed_bytes = 0
         downloaded = 0
         skipped = 0
-        errors = 0
+        errors = missing_messages
 
-        for i, msg_id in enumerate(message_ids):
+        scan_tasks[task_id]["total_bytes"] = total_bytes
+        scan_tasks[task_id]["downloaded_bytes"] = 0
+
+        for i, item in enumerate(selected_items):
+            if scan_tasks.get(task_id, {}).get("cancel_requested"):
+                raise DownloadCancelled()
+
+            msg_id = item["id"]
+            real_msg = item["message"]
+            media_size = item["size"] or 0
+            file_path = None
             try:
-                real_msg = await service.client.get_messages(channel, ids=msg_id)
                 if not real_msg:
-                    errors += 1
+                    scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
+                    scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}... message not found"
                     continue
 
                 # Determine extension
@@ -1018,33 +1171,99 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
                 file_path = os.path.join(user_dir, file_name)
 
                 if skip_existing and os.path.exists(file_path):
-                    skipped += 1
-                    scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
-                    scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}..."
-                    continue
+                    existing_size = os.path.getsize(file_path)
+                    if media_size and existing_size >= media_size:
+                        md_path = os.path.splitext(file_path)[0] + ".md"
+                        if not os.path.exists(md_path):
+                            _write_selected_message_metadata(real_msg, file_path, file_name, topic_id)
+                        skipped += 1
+                        completed_bytes += media_size
+                        scan_tasks[task_id]["downloaded_bytes"] = completed_bytes
+                        scan_tasks[task_id]["progress"] = (
+                            int(completed_bytes / total_bytes * 100) if total_bytes else int((i + 1) / total * 100)
+                        )
+                        scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}..."
+                        continue
+                    if existing_size == 0:
+                        logger.info(f"[Task {task_id}] Re-downloading empty partial file: {file_path}")
+                    else:
+                        logger.info(
+                            f"[Task {task_id}] Re-downloading partial file: "
+                            f"{file_path} ({existing_size}/{media_size or 'unknown'} bytes)"
+                        )
 
-                await service.client.download_media(real_msg, file=file_path)
+                logger.info(
+                    f"[Task {task_id}] Downloading selected msg {msg_id} "
+                    f"({i + 1}/{total}, {media_size} bytes) to {file_path}"
+                )
+                scan_tasks[task_id]["progress"] = int(i / total * 100)
+                scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}: 0%"
+                scan_tasks[task_id]["current_file"] = file_name
+                scan_tasks[task_id]["current_file_bytes"] = 0
+                scan_tasks[task_id]["current_file_total"] = media_size
+
+                def file_progress(current: int, file_total: int):
+                    if scan_tasks.get(task_id, {}).get("cancel_requested"):
+                        raise DownloadCancelled()
+
+                    known_total = file_total or media_size
+                    file_pct = int(current / known_total * 100) if known_total else 0
+                    current_total_bytes = completed_bytes + current
+                    overall = (
+                        int(current_total_bytes / total_bytes * 100)
+                        if total_bytes
+                        else int(((i + (current / known_total if known_total else 0)) / total) * 100)
+                    )
+                    scan_tasks[task_id]["progress"] = max(0, min(100, overall))
+                    scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}: {file_pct}%"
+                    scan_tasks[task_id]["downloaded_bytes"] = current_total_bytes
+                    scan_tasks[task_id]["current_file_bytes"] = current
+                    scan_tasks[task_id]["current_file_total"] = known_total
+                    scan_tasks[task_id]["current_file_percent"] = file_pct
+
+                await service.client.download_media(real_msg, file=file_path, progress_callback=file_progress)
+                _write_selected_message_metadata(real_msg, file_path, file_name, topic_id)
                 downloaded += 1
+                completed_bytes += media_size
 
                 scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
+                if total_bytes:
+                    scan_tasks[task_id]["progress"] = int(completed_bytes / total_bytes * 100)
+                scan_tasks[task_id]["downloaded_bytes"] = completed_bytes
                 scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}..."
 
                 if i < len(message_ids) - 1:
                     delay = random.uniform(delay_min, delay_max)
                     await asyncio.sleep(delay)
 
+            except DownloadCancelled:
+                raise
             except FloodWaitError as e:
+                logger.warning(f"[Task {task_id}] Flood wait {e.seconds}s while downloading msg {msg_id}")
+                scan_tasks[task_id]["message"] = f"Flood wait {e.seconds}s on file {i + 1}/{total}..."
                 await asyncio.sleep(e.seconds + 5)
                 try:
+                    if scan_tasks.get(task_id, {}).get("cancel_requested"):
+                        raise DownloadCancelled()
                     real_msg = await service.client.get_messages(channel, ids=msg_id)
-                    if real_msg:
+                    if real_msg and file_path:
                         await service.client.download_media(real_msg, file=file_path)
+                        _write_selected_message_metadata(real_msg, file_path, os.path.basename(file_path), topic_id)
                         downloaded += 1
+                        completed_bytes += media_size
+                        scan_tasks[task_id]["downloaded_bytes"] = completed_bytes
+                except DownloadCancelled:
+                    raise
                 except Exception:
                     errors += 1
             except Exception as e:
                 errors += 1
                 logger.error(f"Error downloading msg {msg_id}: {e}")
+                scan_tasks[task_id]["progress"] = int((i + 1) / total * 100)
+                scan_tasks[task_id]["message"] = f"Downloading {i + 1}/{total}... error"
+
+        if scan_tasks.get(task_id, {}).get("cancel_requested"):
+            raise DownloadCancelled()
 
         scan_tasks[task_id] = {
             "status": "completed",
@@ -1056,6 +1275,19 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
         }
         logger.info(f"[Task {task_id}] Selected download completed: {downloaded}/{total}")
         await service.disconnect()
+    except DownloadCancelled:
+        logger.info(f"[Task {task_id}] Selected download cancelled by user")
+        scan_tasks[task_id] = {
+            "status": "cancelled",
+            "progress": scan_tasks.get(task_id, {}).get("progress", 0),
+            "message": "Download stopped by user",
+            "downloaded_bytes": scan_tasks.get(task_id, {}).get("downloaded_bytes", 0),
+            "total_bytes": scan_tasks.get(task_id, {}).get("total_bytes", 0),
+        }
+        try:
+            await service.disconnect()
+        except Exception:
+            pass
     except Exception as e:
         logger.exception(f"[Task {task_id}] Selected download error: {e}")
         scan_tasks[task_id] = {"status": "error", "message": str(e)}
@@ -1067,6 +1299,19 @@ async def get_task_status(task_id: str):
     if not task:
         raise HTTPException(404, "Task not found")
     return task
+
+
+@router.post("/api/task/{task_id}/cancel", summary="Cancel running download task")
+async def cancel_task(task_id: str):
+    task = scan_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.get("status") != "running":
+        return {"status": task.get("status"), "message": task.get("message", "Task is not running")}
+
+    task["cancel_requested"] = True
+    task["message"] = "Stopping download..."
+    return {"status": "cancelling", "message": "Stopping download..."}
 
 
 @router.get("/api/tasks/active", summary="List active (running) download tasks")
