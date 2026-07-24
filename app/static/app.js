@@ -8,6 +8,16 @@ const DEFAULT_ROWS_PER_PAGE = 10;
 let currentScanTaskId = null;
 let currentAuthSessionId = null;
 let selectedMessageIds = new Set();
+let currentDownloadTaskId = null;
+
+function isRemoteClient() {
+    const host = window.location.hostname;
+    return host && !['localhost', '127.0.0.1', '::1'].includes(host);
+}
+
+function remoteFolderMessage() {
+    return i18n.t('remote_folder_disabled');
+}
 
 // Loading overlay functions
 function showLoading(text = i18n.t('loading_connect')) {
@@ -25,18 +35,34 @@ function hideLoading() {
 }
 
 // Download progress overlay functions
-function showDownloadProgress(message, progress = 0, done = 0, total = 0) {
+function showDownloadProgress(message, progress = 0, done = 0, total = 0, details = null) {
     const overlay = document.getElementById('downloadOverlay');
     const bar = document.getElementById('downloadProgressBar');
     const text = document.getElementById('downloadProgressText');
     const pct = document.getElementById('downloadPercent');
     const title = document.getElementById('downloadTitle');
+    const stopBtn = document.getElementById('stopDownloadBtn');
     if (overlay) {
         overlay.style.display = 'flex';
     }
     if (title) title.textContent = message;
+    if (stopBtn) {
+        stopBtn.style.display = currentDownloadTaskId ? 'block' : 'none';
+        stopBtn.disabled = Boolean(details && details.cancelRequested);
+        stopBtn.textContent = stopBtn.disabled ? i18n.t('stopping_download') : i18n.t('stop_download');
+    }
     if (bar) bar.style.width = progress + '%';
-    if (text) text.textContent = done + ' / ' + total;
+    if (text) {
+        const parts = [done + ' / ' + total];
+        if (details && details.currentFileTotal) {
+            const fileName = details.currentFile ? details.currentFile + ' - ' : '';
+            parts.push(fileName + formatBytes(details.currentFileBytes) + ' / ' + formatBytes(details.currentFileTotal));
+        }
+        if (details && details.downloadedBytes && details.totalBytes) {
+            parts.push('total ' + formatBytes(details.downloadedBytes) + ' / ' + formatBytes(details.totalBytes));
+        }
+        text.textContent = parts.join(' | ');
+    }
     // Hide percent during scanning (when progress is 0 and done/total show message count)
     if (pct) {
         if (progress > 0) {
@@ -51,6 +77,7 @@ function showDownloadProgress(message, progress = 0, done = 0, total = 0) {
 function hideDownloadProgress() {
     const overlay = document.getElementById('downloadOverlay');
     if (overlay) overlay.style.display = 'none';
+    currentDownloadTaskId = null;
 }
 
 // ---------- Column resize for stats-table ----------
@@ -130,6 +157,42 @@ let currentFilters = {
 let statsCurrentPage = 1;
 let statsTotalPages = 1;
 
+function resetResultsStateForNewScan(payload) {
+    selectedMessageIds.clear();
+    updateDownloadButton();
+
+    currentResults = [];
+    currentPage = 1;
+    statsCurrentPage = 1;
+    statsTotalPages = 1;
+
+    currentFilters.channel_id = payload.channel_id;
+    currentFilters.username = '';
+    currentFilters.date_from = payload.start_date || '';
+    currentFilters.date_to = payload.end_date || '';
+    currentFilters.sort_by = 'date_desc';
+    currentFilters.per_page = DEFAULT_ROWS_PER_PAGE;
+
+    document.getElementById('filterUsername').value = '';
+    document.getElementById('filterDateFrom').value = '';
+    document.getElementById('filterDateTo').value = '';
+    document.getElementById('sortBy').value = 'date_desc';
+    document.getElementById('rowsPerPage').value = String(DEFAULT_ROWS_PER_PAGE);
+
+    document.getElementById('statsUsername').value = '';
+    document.getElementById('statsSortBy').value = 'count_desc';
+    document.getElementById('statsRowsPerPage').value = String(DEFAULT_ROWS_PER_PAGE);
+
+    document.getElementById('results').innerHTML = `<p class="placeholder">${i18n.t('results_placeholder')}</p>`;
+    document.getElementById('pagination').style.display = 'none';
+    document.getElementById('downloadSection').style.display = 'none';
+    document.getElementById('pageInfo').textContent = '';
+
+    document.getElementById('statsTableContainer').innerHTML = `<p class="placeholder">${i18n.t('stats_placeholder')}</p>`;
+    document.getElementById('statsPagination').style.display = 'none';
+    document.getElementById('statsPageInfo').textContent = '';
+}
+
 // Initialize flatpickr for date range
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize i18n
@@ -158,12 +221,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Pre-fill from .env (served via /telegram/api/config)
     loadEnvConfig();
+    configureFolderPickerAccess();
     
     // Date range picker (for scan form)
+    const flatpickrLocale = flatpickr.l10ns && flatpickr.l10ns[i18n.lang] ? i18n.lang : undefined;
     const fp = flatpickr("#dateRange", {
         mode: "range",
         dateFormat: "Y-m-d",
-        locale: "ru",
+        locale: flatpickrLocale,
         onChange: (selectedDates) => {
             if (selectedDates.length === 2) {
                 document.getElementById('days').value = '';
@@ -200,6 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Download button
     document.getElementById('downloadBtn').addEventListener('click', handleDownload);
+    document.getElementById('stopDownloadBtn').addEventListener('click', stopCurrentDownload);
     
     // Stats button handler
     document.getElementById('loadStatsBtn').addEventListener('click', loadStats);
@@ -237,7 +303,7 @@ async function checkAuthStatus() {
         });
         if (res.ok) {
             // JWT is valid — show auth success
-            showAuthSuccess({});
+            showAuthSuccess({}, { skipAutoLogin: true });
         } else if (res.status === 401) {
             // Token expired or invalid — clear it
             authToken = null;
@@ -538,7 +604,7 @@ async function handleLogout() {
     }
 }
 
-function showAuthSuccess(data) {
+function showAuthSuccess(data, options = {}) {
     document.getElementById('authCodeStep').style.display = 'none';
     document.getElementById('twoFAStep').style.display = 'none';
     document.getElementById('authSuccess').style.display = 'block';
@@ -556,12 +622,17 @@ function showAuthSuccess(data) {
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
     hideStatus('connectStatus');
 
-    // Auto-login to get JWT token
-    autoLogin(currentAuthSessionId);
+    // Auto-login to get JWT token only after a fresh Telegram auth flow.
+    if (!options.skipAutoLogin) {
+        autoLogin(currentAuthSessionId);
+    }
 }
 
 
 async function autoLogin(sessionId) {
+    if (authToken || !sessionId) {
+        return;
+    }
     try {
         const formData = new FormData();
         formData.append('session_id', sessionId);
@@ -584,7 +655,7 @@ async function autoLogin(sessionId) {
             localStorage.setItem('tg_auth_token', authToken);
             console.log('JWT token obtained');
         } else {
-            console.warn('Auto-login failed:', data.detail || data.message);
+            console.warn('Auto-login skipped:', data.detail || data.message);
         }
     } catch (err) {
         console.error('Auto-login error:', err);
@@ -597,10 +668,6 @@ async function handleScan(e) {
     e.preventDefault();
     hideStatus('scanStatus');
     showLoading(i18n.t('scan_progress'));
-
-    // Reset stats section
-    document.getElementById('statsTableContainer').innerHTML = `<p class="placeholder">${i18n.t('stats_placeholder')}</p>`;
-    document.getElementById('statsPagination').style.display = 'none';
     
     const formData = new FormData(e.target);
     const payload = {
@@ -618,6 +685,8 @@ async function handleScan(e) {
         // If only one date selected, use same date for end
         payload.end_date = parts[1] || parts[0] || null;
     }
+
+    resetResultsStateForNewScan(payload);
     
     try {
         const headers = { 'Content-Type': 'application/json' };
@@ -685,6 +754,9 @@ async function pollTask(taskId) {
             // Load results from saved scan via API (uses correct channel_id)
             await loadFilteredResults();
             loadSidebarHistory();
+        } else if (task.status === 'cancelled') {
+            hideDownloadProgress();
+            showStatus('scanStatus', task.message || i18n.t('download_cancelled'), true);
         } else if (task.status === 'error') {
             hideDownloadProgress();
             hideLoading();
@@ -930,10 +1002,14 @@ function renderStatsTable(data) {
     }
 
     const startNum = data.start || 0;
+    const isAllMediaStats = data.media_type && data.media_type !== 'video';
+    const totalLabel = isAllMediaStats ? i18n.t('stats_total_media') : i18n.t('stats_total_videos');
+    const countLabel = isAllMediaStats ? i18n.t('col_media') : i18n.t('col_videos');
+    const totalCount = isAllMediaStats ? (data.total_media ?? data.total_videos) : data.total_videos;
 
     let html = `
         <div style="margin-bottom: 10px;">
-            <strong>${i18n.t('stats_total_videos')}</strong> ${data.total_videos} |
+            <strong>${totalLabel}</strong> ${totalCount} |
             <strong>${i18n.t('stats_unique_authors')}</strong> ${data.total}
         </div>
         <div class="table-container">
@@ -943,7 +1019,7 @@ function renderStatsTable(data) {
                     <th>${i18n.t('col_num')}</th>
                     <th>${i18n.t('col_user')}</th>
                     <th>${i18n.t('col_username')}</th>
-                    <th>${i18n.t('col_videos')}</th>
+                    <th>${countLabel}</th>
                     <th>${i18n.t('col_total_mb')}</th>
                     <th>${i18n.t('col_last_upload')}</th>
                 </tr>
@@ -1003,8 +1079,31 @@ function changeStatsPage(page) {
 
 // ==================== DOWNLOAD ====================
 
+function configureFolderPickerAccess() {
+    if (!isRemoteClient()) return;
+
+    const btn = document.getElementById('pickFolderBtn');
+    if (btn) {
+        btn.classList.add('remote-disabled');
+        btn.setAttribute('aria-disabled', 'true');
+        btn.title = remoteFolderMessage();
+    }
+
+    const input = document.getElementById('download_path');
+    if (input) {
+        input.title = remoteFolderMessage();
+    }
+}
+
 // Folder picker using File System Access API (modern) or webkitdirectory fallback
 async function pickFolder() {
+    if (isRemoteClient()) {
+        const message = remoteFolderMessage();
+        showStatus('scanStatus', message, true);
+        showErrorModal(message);
+        return;
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.webkitdirectory = true;
@@ -1135,6 +1234,7 @@ async function handleDownload() {
             showStatus('scanStatus', '⏳ ' + (task.detail || i18n.t('status_duplicate_download')), true);
         } else if (task.task_id) {
             hideLoading();
+            currentDownloadTaskId = task.task_id;
             showDownloadProgress(i18n.t('download_title'), 0, 0, 0);
             pollDownloadTask(task.task_id);
         } else {
@@ -1164,7 +1264,14 @@ async function pollDownloadTask(taskId) {
             const done = match ? parseInt(match[1]) : 0;
             const total = match ? parseInt(match[2]) : 0;
             const progress = task.progress || (total ? Math.round(done / total * 100) : 0);
-            showDownloadProgress(i18n.t('download_title'), progress, done, total);
+            showDownloadProgress(i18n.t('download_title'), progress, done, total, {
+                downloadedBytes: task.downloaded_bytes || 0,
+                totalBytes: task.total_bytes || 0,
+                currentFile: task.current_file || '',
+                currentFileBytes: task.current_file_bytes || 0,
+                currentFileTotal: task.current_file_total || 0,
+                cancelRequested: Boolean(task.cancel_requested)
+            });
             setTimeout(() => pollDownloadTask(taskId), 3000);
         } else if (task.status === 'completed') {
             hideDownloadProgress();
@@ -1178,6 +1285,37 @@ async function pollDownloadTask(taskId) {
         hideDownloadProgress();
         showStatus('scanStatus', i18n.t('status_poll_error') + ' ' + err.message, true);
         showErrorModal(err.message);
+    }
+}
+
+async function stopCurrentDownload() {
+    if (!currentDownloadTaskId) return;
+
+    const taskId = currentDownloadTaskId;
+    const btn = document.getElementById('stopDownloadBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = i18n.t('stopping_download');
+    }
+
+    try {
+        const headers = {};
+        if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
+        const res = await fetch('/telegram/api/task/' + taskId + '/cancel', {
+            method: 'POST',
+            headers,
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || data.message || 'Cancel failed');
+        showStatus('scanStatus', data.message || i18n.t('stopping_download'));
+    } catch (err) {
+        showStatus('scanStatus', i18n.t('status_error') + ' ' + err.message, true);
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = i18n.t('stop_download');
+        }
     }
 }
 
