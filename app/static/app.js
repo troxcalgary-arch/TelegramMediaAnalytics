@@ -19,6 +19,36 @@ function remoteFolderMessage() {
     return i18n.t('remote_folder_disabled');
 }
 
+function resetAuthUi(message = i18n.t('web_session_expired')) {
+    authToken = null;
+    currentAuthSessionId = null;
+    localStorage.removeItem('tg_auth_token');
+
+    document.getElementById('authCodeStep').style.display = 'none';
+    document.getElementById('twoFAStep').style.display = 'none';
+    document.getElementById('authSuccess').style.display = 'none';
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('auth_code').value = '';
+    document.getElementById('twofa_password').value = '';
+
+    showStatus('connectStatus', message, true);
+}
+
+async function handleAuthFailureResponse(res) {
+    if (!res || res.status !== 401) return false;
+
+    let detail = '';
+    try {
+        const data = await res.clone().json();
+        detail = data.detail || data.message || '';
+    } catch (_) {
+        detail = '';
+    }
+
+    resetAuthUi(detail ? `${i18n.t('web_session_expired')} (${detail})` : i18n.t('web_session_expired'));
+    return true;
+}
+
 // Loading overlay functions
 function showLoading(text = i18n.t('loading_connect')) {
     const overlay = document.getElementById('loadingOverlay');
@@ -305,9 +335,7 @@ async function checkAuthStatus() {
             // JWT is valid — show auth success
             showAuthSuccess({}, { skipAutoLogin: true });
         } else if (res.status === 401) {
-            // Token expired or invalid — clear it
-            authToken = null;
-            localStorage.removeItem('tg_auth_token');
+            await handleAuthFailureResponse(res);
         }
     } catch (e) {
         console.log('Auth check failed:', e);
@@ -320,6 +348,7 @@ async function checkActiveDownloads() {
         const headers = {};
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
         const res = await fetch('/telegram/api/tasks/active', { headers, credentials: 'include' });
+        if (await handleAuthFailureResponse(res)) return;
         if (!res.ok) return;
         const data = await res.json();
         const tasks = data.tasks || [];
@@ -340,6 +369,7 @@ async function loadSidebarHistory() {
         const headers = {};
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
         const res = await fetch('/telegram/api/scan-history?limit=3', { headers, credentials: 'include' });
+        if (await handleAuthFailureResponse(res)) return;
         if (!res.ok) return;
         const data = await res.json();
         const history = data.history || [];
@@ -398,6 +428,7 @@ async function loadEnvConfig() {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) return;
         if (res.ok) {
             const config = await res.json();
             document.getElementById('api_id').value = config.api_id || '';
@@ -646,6 +677,7 @@ async function autoLogin(sessionId) {
             headers,
             body: formData
         });
+        if (await handleAuthFailureResponse(res)) return;
         
         const data = await res.json();
         
@@ -703,6 +735,11 @@ async function handleScan(e) {
             credentials: 'include',
             body: JSON.stringify(payload)
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideLoading();
+            hideDownloadProgress();
+            return;
+        }
         
         const task = await res.json();
         if (task.task_id) {
@@ -733,6 +770,10 @@ async function pollTask(taskId) {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideDownloadProgress();
+            return;
+        }
         const task = await res.json();
 
         if (task.status === 'running') {
@@ -817,6 +858,7 @@ async function loadSavedResults() {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) return;
         if (res.ok) {
             const data = await res.json();
             if (data.total > 0) {
@@ -866,6 +908,7 @@ async function loadFilteredResults() {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) return;
         if (res.ok) {
             const data = await res.json();
             currentResults = data.videos;
@@ -979,6 +1022,10 @@ async function loadStats() {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideLoading();
+            return;
+        }
         if (!res.ok) throw new Error('Failed to load stats');
         const data = await res.json();
         hideLoading();
@@ -1181,6 +1228,7 @@ async function handleDownload() {
         const h = {};
         if (authToken) h['Authorization'] = 'Bearer ' + authToken;
         const actRes = await fetch('/telegram/api/tasks/active', { headers: h, credentials: 'include' });
+        if (await handleAuthFailureResponse(actRes)) return;
         if (actRes.ok) {
             const actData = await actRes.json();
             const dup = (actData.tasks || []).find(t => t.channel_id === channelId);
@@ -1227,6 +1275,10 @@ async function handleDownload() {
             credentials: 'include',
             body: JSON.stringify(body)
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideLoading();
+            return;
+        }
         
         const task = await res.json();
         if (res.status === 409) {
@@ -1256,6 +1308,10 @@ async function pollDownloadTask(taskId) {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideDownloadProgress();
+            return;
+        }
         const task = await res.json();
 
         if (task.status === 'running') {
@@ -1307,6 +1363,10 @@ async function stopCurrentDownload() {
             headers,
             credentials: 'include'
         });
+        if (await handleAuthFailureResponse(res)) {
+            hideDownloadProgress();
+            return;
+        }
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || data.message || 'Cancel failed');
         showStatus('scanStatus', data.message || i18n.t('stopping_download'));
