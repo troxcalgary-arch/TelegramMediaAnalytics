@@ -177,6 +177,7 @@ const translations = {
         status_logged_out: "✅ Вы вышли из аккаунта",
         status_loading_stats: "Загрузка статистики...",
         status_duplicate_download_detail: "Для канала «{channel}» ({id}) уже выполняется скачивание в фоне — дождитесь завершения.",
+        web_session_expired: "Web-сессия истекла. Нажмите Connect и подключитесь заново.",
 
         // Column names for renderTaskResults
         col_name: "Пользователь",
@@ -361,6 +362,7 @@ const translations = {
         status_logged_out: "✅ You have been logged out",
         status_loading_stats: "Loading statistics...",
         status_duplicate_download_detail: "Download for channel \"{channel}\" ({id}) is already running in background — please wait for completion.",
+        web_session_expired: "Web session expired. Please click Connect and sign in again.",
 
         // Column names for renderTaskResults
         col_name: "User",
