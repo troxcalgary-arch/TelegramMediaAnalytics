@@ -1247,9 +1247,14 @@ async function handleDownload() {
         const headers = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
 
-        // Check if specific files are selected
-        const useSelected = selectedMessageIds.size > 0;
-        const endpoint = useSelected ? '/telegram/api/download-selected' : '/telegram/api/download';
+        const currentResultMessageIds = currentResults
+            .map(item => item.message_id)
+            .filter(id => Number.isInteger(id));
+        const messageIdsToDownload = selectedMessageIds.size > 0
+            ? Array.from(selectedMessageIds)
+            : currentResultMessageIds;
+        const useMessageIds = messageIdsToDownload.length > 0;
+        const endpoint = useMessageIds ? '/telegram/api/download-selected' : '/telegram/api/download';
 
         const body = {
             channel_id: channelId,
@@ -1264,9 +1269,9 @@ async function handleDownload() {
             end_date: currentFilters.end_date || null
         };
 
-        // Add message_ids for selected files download
-        if (useSelected) {
-            body.message_ids = Array.from(selectedMessageIds);
+        // Prefer already-loaded result IDs to avoid re-scanning Telegram history during download.
+        if (useMessageIds) {
+            body.message_ids = messageIdsToDownload;
         }
 
         const res = await fetch(endpoint, {

@@ -914,6 +914,7 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
 
         messages = await service.get_messages_with_media(
             channel, filter_type=media_type, days=days, limit=limit,
+            topic_id=topic_id,
             start_date=start_date, end_date=end_date
         )
 
