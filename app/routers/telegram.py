@@ -6,6 +6,7 @@ import uuid
 import os
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -178,6 +179,33 @@ def _write_selected_message_metadata(real_msg, file_path: str, file_name: str, t
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(meta_lines) + "\n")
+
+
+def _safe_folder_name(value: Any, fallback: str) -> str:
+    """Return a Windows-safe folder name with a stable fallback."""
+    safe = re.sub(r'[<>:"/\\|?*]', '_', str(value or fallback)).strip().strip('.')
+    safe = re.sub(r'\s+', ' ', safe).strip()[:120].rstrip()
+    return safe or fallback
+
+
+async def _resolve_topic_folder_name(service: TelegramService, channel, topic_id: Optional[int]) -> Optional[str]:
+    """Resolve forum topic title when possible; fall back to the topic ID."""
+    if topic_id is None:
+        return None
+
+    fallback = f"Topic {topic_id}"
+    try:
+        from telethon.tl.functions.messages import GetForumTopicsByIDRequest
+
+        result = await service.client(GetForumTopicsByIDRequest(peer=channel, topics=[topic_id]))
+        topics = getattr(result, "topics", None) or []
+        for topic in topics:
+            if getattr(topic, "id", None) == topic_id:
+                return getattr(topic, "title", None) or fallback
+    except Exception as e:
+        logger.info(f"Could not resolve topic title for {topic_id}: {e}")
+
+    return fallback
 
 
 # ---------- Pydantic schemas ----------
@@ -899,18 +927,21 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
         logger.info(f"[Task {task_id}] Session authorized, fetching channel...")
         channel, topic_id = await service.get_channel(channel_id)
 
-        # Create subfolder named after the channel
-        import re as _re
         channel_title = getattr(channel, "title", None) or str(channel_id)
-        safe_title = _re.sub(r'[<>:"/\\|?*]', '_', channel_title).strip().strip('.')
-        if not safe_title:
-            safe_title = str(channel_id)
+        safe_title = _safe_folder_name(channel_title, str(channel_id))
         channel_dir = os.path.join(download_path, safe_title)
-        os.makedirs(channel_dir, exist_ok=True)
+        topic_title = await _resolve_topic_folder_name(service, channel, topic_id)
+        safe_topic_title = _safe_folder_name(topic_title, f"Topic {topic_id}") if topic_title else None
+        download_dir = os.path.join(channel_dir, safe_topic_title) if safe_topic_title else channel_dir
+        os.makedirs(download_dir, exist_ok=True)
+        display_dir = f"{safe_title}/{safe_topic_title}/" if safe_topic_title else f"{safe_title}/"
 
         # Store channel info in task for active-task tracking
         scan_tasks[task_id]["channel_id"] = channel_id
         scan_tasks[task_id]["channel_title"] = channel_title
+        scan_tasks[task_id]["topic_id"] = topic_id
+        if topic_title:
+            scan_tasks[task_id]["topic_title"] = topic_title
 
         messages = await service.get_messages_with_media(
             channel, filter_type=media_type, days=days, limit=limit,
@@ -925,7 +956,7 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
             scan_tasks[task_id]["message"] = f"Downloading {done}/{total}..."
 
         result = await service.download_all_media(
-            messages, channel_dir, channel=channel, progress_callback=progress_cb,
+            messages, download_dir, channel=channel, progress_callback=progress_cb,
             delay_range=(delay_min, delay_max),
             skip_existing=skip_existing,
             cancel_callback=lambda: scan_tasks.get(task_id, {}).get("cancel_requested", False)
@@ -936,7 +967,7 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
                 "downloaded": result["downloaded"],
                 "skipped": result.get("skipped", 0),
                 "errors": result["errors"],
-                "path": channel_dir,
+                "path": download_dir,
                 "message": f"Download stopped. Downloaded {result['downloaded']} files, skipped {result.get('skipped', 0)}, {result['errors']} errors"
             }
             await service.disconnect()
@@ -946,8 +977,8 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
             "downloaded": result["downloaded"],
             "skipped": result.get("skipped", 0),
             "errors": result["errors"],
-            "path": channel_dir,
-            "message": f"Downloaded {result['downloaded']} files to {safe_title}/, skipped {result.get('skipped', 0)}, {result['errors']} errors"
+            "path": download_dir,
+            "message": f"Downloaded {result['downloaded']} files to {display_dir}, skipped {result.get('skipped', 0)}, {result['errors']} errors"
         }
         logger.info(f"[Task {task_id}] Download completed: {scan_tasks[task_id].get('message', 'done')}")
         await service.disconnect()
@@ -1091,13 +1122,16 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
         channel_title = getattr(channel, "title", None) or channel_id
         scan_tasks[task_id]["channel_title"] = channel_title
 
-        # Create subfolder by channel name
-        import re as _re
-        safe_title = _re.sub(r'[<>:"/\\|?*]', '_', channel_title).strip().strip('.')
-        if not safe_title:
-            safe_title = str(channel_id)
+        safe_title = _safe_folder_name(channel_title, str(channel_id))
         channel_dir = os.path.join(download_path, safe_title)
-        os.makedirs(channel_dir, exist_ok=True)
+        topic_title = await _resolve_topic_folder_name(service, channel, topic_id)
+        safe_topic_title = _safe_folder_name(topic_title, f"Topic {topic_id}") if topic_title else None
+        download_dir = os.path.join(channel_dir, safe_topic_title) if safe_topic_title else channel_dir
+        os.makedirs(download_dir, exist_ok=True)
+        display_dir = f"{safe_title}/{safe_topic_title}/" if safe_topic_title else f"{safe_title}/"
+        scan_tasks[task_id]["topic_id"] = topic_id
+        if topic_title:
+            scan_tasks[task_id]["topic_title"] = topic_title
 
         selected_items = []
         missing_messages = 0
@@ -1161,11 +1195,9 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
                 if real_msg.sender:
                     s = real_msg.sender
                     username = getattr(s, "username", None) or getattr(s, "first_name", None) or str(sender_id)
-                safe_username = _re.sub(r'[<>:"/\\|?*]', '_', username).strip().strip('.')
-                if not safe_username:
-                    safe_username = str(sender_id)
+                safe_username = _safe_folder_name(username, str(sender_id))
 
-                user_dir = os.path.join(channel_dir, safe_username)
+                user_dir = os.path.join(download_dir, safe_username)
                 os.makedirs(user_dir, exist_ok=True)
 
                 file_name = f"{msg_id}_{sender_id}{ext}"
@@ -1271,8 +1303,8 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
             "downloaded": downloaded,
             "skipped": skipped,
             "errors": errors,
-            "path": channel_dir,
-            "message": f"Downloaded {downloaded} files to {safe_title}/, skipped {skipped}, {errors} errors"
+            "path": download_dir,
+            "message": f"Downloaded {downloaded} files to {display_dir}, skipped {skipped}, {errors} errors"
         }
         logger.info(f"[Task {task_id}] Selected download completed: {downloaded}/{total}")
         await service.disconnect()
