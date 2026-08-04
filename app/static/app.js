@@ -1337,6 +1337,9 @@ async function pollDownloadTask(taskId) {
         } else if (task.status === 'completed') {
             hideDownloadProgress();
             showStatus('scanStatus', '✅ ' + task.message);
+        } else if (task.status === 'cancelled') {
+            hideDownloadProgress();
+            showStatus('scanStatus', task.message || i18n.t('download_cancelled'), true);
         } else if (task.status === 'error') {
             hideDownloadProgress();
             showStatus('scanStatus', i18n.t('error_download') + ' ' + task.message, true);
