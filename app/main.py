@@ -1,8 +1,9 @@
 """FastAPI application with JWT Auth + persistent sessions (Phase 1)."""
 
 import os
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import timedelta, timezone as dt_timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session as DBSessionBase  # type alias for clarity
 from app.models import Base  # shared SQLAlchemy setup (TelegramChannel etc.)
 from app.database import engine, get_db
 from app.routers import telegram
+from app.services.session_manager import SingleProcessGuard
 from app.models.auth_models import (
     AppUser, ApiSessionConfig,
     create_access_token, verify_password, create_hash, get_current_user, oauth2_scheme
@@ -40,6 +42,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+process_guard = SingleProcessGuard(Path(__file__).parent.parent / ".telegram-session-process.lock")
+auth_cleanup_task: asyncio.Task | None = None
 
 # ---------------------------------------------------------------------------
 # App config (JWT + static files / templates). -------------------------------------------------
@@ -63,5 +67,29 @@ def init_db():
 
 @app.on_event("startup")
 async def on_startup():
-    logger.info("[Phase1] Running DB initialization...")
-    init_db()
+    global auth_cleanup_task
+    process_guard.acquire()
+    try:
+        logger.info("[Phase1] Running DB initialization in single-worker mode pid=%s", os.getpid())
+        init_db()
+        auth_cleanup_task = asyncio.create_task(
+            telegram.auth_session_cleanup_loop(),
+            name="telegram-auth-session-cleanup",
+        )
+    except Exception:
+        process_guard.release()
+        raise
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    global auth_cleanup_task
+    if auth_cleanup_task is not None:
+        auth_cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await auth_cleanup_task
+        auth_cleanup_task = None
+    try:
+        await telegram.shutdown_telegram_sessions()
+    finally:
+        process_guard.release()

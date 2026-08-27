@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +24,8 @@ from app.models.auth_models import (
     create_access_token, verify_password, create_hash,
     get_current_user, oauth2_scheme
 )
-from app.services.telegram_service import DownloadCancelled, TelegramService, get_telegram_service
+from app.services.telegram_service import DownloadCancelled, TelegramService
+from app.services.session_manager import SessionBusyError, telegram_session_manager
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -36,6 +38,62 @@ scan_tasks: Dict[str, Dict[str, Any]] = {}
 
 # Store temporary auth sessions (in production use Redis/DB)
 auth_sessions: Dict[str, Dict] = {}
+
+
+def _positive_seconds(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+        return value if value > 0 else default
+    except ValueError:
+        return default
+
+
+AUTH_OPERATION_TIMEOUT_SECONDS = _positive_seconds("TG_AUTH_TIMEOUT_SECONDS", 60.0)
+AUTH_SESSION_TTL_SECONDS = _positive_seconds("TG_AUTH_SESSION_TTL_SECONDS", 600.0)
+
+
+def _session_name_for(phone: str, configured: Optional[str] = None) -> str:
+    return configured or f"auth_{phone.replace('+', '').replace('-', '_')}"
+
+
+async def _release_auth_session(session_id: str) -> None:
+    session = auth_sessions.pop(session_id, None)
+    if session:
+        await telegram_session_manager.release(session["session_name"], session["owner"])
+
+
+async def cleanup_expired_auth_sessions() -> int:
+    """Disconnect and remove incomplete auth flows that exceeded their TTL."""
+    cutoff = time.monotonic() - AUTH_SESSION_TTL_SECONDS
+    expired = [
+        session_id
+        for session_id, session in list(auth_sessions.items())
+        if session.get("last_activity", session.get("created_at", 0)) < cutoff
+    ]
+    for session_id in expired:
+        session = auth_sessions.get(session_id, {})
+        logger.warning(
+            "Expiring Telegram auth session=%s owner=%s pid=%s",
+            session.get("session_name"),
+            session.get("owner"),
+            os.getpid(),
+        )
+        await _release_auth_session(session_id)
+    return len(expired)
+
+
+async def auth_session_cleanup_loop() -> None:
+    """Periodically clean stale multi-request authentication flows."""
+    interval = max(5.0, min(60.0, AUTH_SESSION_TTL_SECONDS / 2))
+    while True:
+        await asyncio.sleep(interval)
+        await cleanup_expired_auth_sessions()
+
+
+async def shutdown_telegram_sessions() -> None:
+    for session_id in list(auth_sessions):
+        await _release_auth_session(session_id)
+    await telegram_session_manager.close_all()
 
 def _make_task_id() -> str:
     return uuid.uuid4().hex[:12]
@@ -398,9 +456,6 @@ async def get_session_config(
 
 # ---------- Auth endpoints ----------
 
-# Store temporary auth sessions (in production use Redis/DB)
-auth_sessions: Dict[str, Dict] = {}
-
 # ---------- Config prefill endpoint ----------
 @router.get("/api/config", summary="Get .env config for form prefill")
 async def get_env_config_endpoint():
@@ -418,30 +473,46 @@ async def auth_connect(
     api_id: int = Form(...),
     api_hash: str = Form(...),
     phone: str = Form(...),
-    db: Session = Depends(get_db)
 ):
     """Start Telegram auth: connect client and send code."""
+    await cleanup_expired_auth_sessions()
+    session_name = _session_name_for(phone)
+    session_id = _make_task_id()
+    owner = f"auth:{session_id}"
     try:
-        # Use deterministic session name based on phone — reuses existing .session file
-        session_name = f"auth_{phone.replace('+', '').replace('-', '_')}"
-        service = TelegramService(api_id, api_hash, phone, session_name)
-        await service.connect()
+        service = await telegram_session_manager.reserve(
+            session_name, api_id, api_hash, phone, owner
+        )
+    except SessionBusyError as exc:
+        raise HTTPException(409, "Session is busy. Wait for the active Telegram operation to finish.") from exc
 
-        # Send code request
-        sent = await service.client.send_code_request(phone)
-
-        # Store session for verification
-        session_id = _make_task_id()
+    try:
+        await asyncio.wait_for(service.connect(), timeout=AUTH_OPERATION_TIMEOUT_SECONDS)
+        sent = await asyncio.wait_for(
+            service.client.send_code_request(phone),
+            timeout=AUTH_OPERATION_TIMEOUT_SECONDS,
+        )
+        now = time.monotonic()
         auth_sessions[session_id] = {
             "service": service,
+            "session_name": session_name,
+            "owner": owner,
             "api_id": api_id,
             "api_hash": api_hash,
             "phone": phone,
-            "phone_code_hash": sent.phone_code_hash
+            "phone_code_hash": sent.phone_code_hash,
+            "created_at": now,
+            "last_activity": now,
         }
-
         return {"session_id": session_id, "message": "Code sent to Telegram"}
     except Exception as e:
+        logger.exception(
+            "Telegram auth connect failed session=%s owner=%s pid=%s",
+            session_name,
+            owner,
+            os.getpid(),
+        )
+        await telegram_session_manager.release(session_name, owner)
         raise HTTPException(400, f"Failed to send code: {str(e)}")
 
 
@@ -449,23 +520,29 @@ async def auth_connect(
 async def auth_verify_code(
     session_id: str = Form(...),
     code: str = Form(...),
-    db: Session = Depends(get_db)
 ):
     """Verify the code sent to Telegram."""
+    await cleanup_expired_auth_sessions()
     session = auth_sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found or expired")
 
     service = session["service"]
+    session["last_activity"] = time.monotonic()
     try:
-        await service.client.sign_in(
-            phone=session["phone"],
-            code=code,
-            phone_code_hash=session["phone_code_hash"]
+        await asyncio.wait_for(
+            service.client.sign_in(
+                phone=session["phone"],
+                code=code,
+                phone_code_hash=session["phone_code_hash"],
+            ),
+            timeout=AUTH_OPERATION_TIMEOUT_SECONDS,
         )
 
         # Check if 2FA is needed
-        me = await service.client.get_me()
+        me = await asyncio.wait_for(
+            service.client.get_me(), timeout=AUTH_OPERATION_TIMEOUT_SECONDS
+        )
 
         # Save session config for this user (simplified - in prod associate with web user)
         # For now, just mark as authenticated
@@ -484,6 +561,12 @@ async def auth_verify_code(
         if "TwoFactorAuth" in str(type(e)) or "password" in str(e).lower():
             # 2FA required
             return {"need_2fa": True, "message": "Two-factor authentication required"}
+        logger.exception(
+            "Telegram auth code verification failed session=%s owner=%s pid=%s",
+            session["session_name"],
+            session["owner"],
+            os.getpid(),
+        )
         raise HTTPException(400, f"Invalid code: {str(e)}")
 
 
@@ -491,18 +574,24 @@ async def auth_verify_code(
 async def auth_verify_2fa(
     session_id: str = Form(...),
     password: str = Form(...),
-    db: Session = Depends(get_db)
 ):
     """Verify 2FA password."""
+    await cleanup_expired_auth_sessions()
     session = auth_sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found or expired")
 
     service = session["service"]
+    session["last_activity"] = time.monotonic()
     try:
-        await service.client.sign_in(password=password)
+        await asyncio.wait_for(
+            service.client.sign_in(password=password),
+            timeout=AUTH_OPERATION_TIMEOUT_SECONDS,
+        )
 
-        me = await service.client.get_me()
+        me = await asyncio.wait_for(
+            service.client.get_me(), timeout=AUTH_OPERATION_TIMEOUT_SECONDS
+        )
         auth_sessions[session_id]["authenticated"] = True
         auth_sessions[session_id]["user_id"] = me.id
         auth_sessions[session_id]["tg_user"] = {
@@ -515,12 +604,19 @@ async def auth_verify_2fa(
 
         return {"message": "2FA verified, authenticated successfully", "user_id": me.id, "need_2fa": False}
     except Exception as e:
+        logger.exception(
+            "Telegram auth 2FA verification failed session=%s owner=%s pid=%s",
+            session["session_name"],
+            session["owner"],
+            os.getpid(),
+        )
         raise HTTPException(400, f"Invalid 2FA password: {str(e)}")
 
 
 @router.get("/api/auth/status", summary="Check authentication status")
 async def auth_status(session_id: Optional[str] = Query(None)):
     """Check if there's an active authenticated session."""
+    await cleanup_expired_auth_sessions()
     if not session_id:
         return {"authenticated": False}
 
@@ -537,12 +633,7 @@ async def auth_status(session_id: Optional[str] = Query(None)):
 @router.post("/api/auth/logout", summary="Logout and cleanup")
 async def auth_logout(session_id: str = Form(...)):
     """Logout and cleanup session."""
-    session = auth_sessions.pop(session_id, None)
-    if session and "service" in session:
-        try:
-            await session["service"].disconnect()
-        except:
-            pass
+    await _release_auth_session(session_id)
     return {"message": "Logged out"}
 
 
@@ -553,34 +644,30 @@ async def auth_save_session(
     db: Session = Depends(get_db)
 ):
     """Save authenticated Telegram session to user's config and return JWT."""
+    await cleanup_expired_auth_sessions()
     session = auth_sessions.get(session_id)
     if not session or not session.get("authenticated"):
         raise HTTPException(400, "No authenticated session to save")
 
-    # Save API config
-    cfg = db.query(ApiSessionConfig).filter(ApiSessionConfig.user_id == current_user.id).first()
-    if cfg:
-        cfg.api_id = session["api_id"]
-        cfg.phone_number = session["phone"]
-    else:
-        cfg = ApiSessionConfig(
-            user_id=current_user.id,
-            api_id=session["api_id"],
-            phone_number=session["phone"]
-        )
-        db.add(cfg)
-    db.commit()
-
-    # Disconnect service
     try:
-        await session["service"].disconnect()
-    except:
-        pass
-    auth_sessions.pop(session_id, None)
-
-    # Return JWT token
-    access_token = create_access_token(data={"sub": current_user.username})
-    return {"access_token": access_token, "token_type": "bearer", "message": "Session saved successfully"}
+        cfg = db.query(ApiSessionConfig).filter(ApiSessionConfig.user_id == current_user.id).first()
+        if cfg:
+            cfg.api_id = session["api_id"]
+            cfg.phone_number = session["phone"]
+            cfg.session_name = session["session_name"]
+        else:
+            cfg = ApiSessionConfig(
+                user_id=current_user.id,
+                api_id=session["api_id"],
+                phone_number=session["phone"],
+                session_name=session["session_name"],
+            )
+            db.add(cfg)
+        db.commit()
+        access_token = create_access_token(data={"sub": current_user.username})
+        return {"access_token": access_token, "token_type": "bearer", "message": "Session saved successfully"}
+    finally:
+        await _release_auth_session(session_id)
 
 
 @router.post("/api/auth/auto-login", summary="Auto-login after Telegram auth - creates user if needed and returns JWT")
@@ -589,53 +676,46 @@ async def auth_auto_login(
     db: Session = Depends(get_db)
 ):
     """After Telegram auth, auto-create/login web user and return JWT token."""
+    await cleanup_expired_auth_sessions()
     session = auth_sessions.get(session_id)
     if not session or not session.get("authenticated"):
         raise HTTPException(400, "No authenticated session")
 
-    tg_user = session.get("tg_user")
-    if not tg_user:
-        raise HTTPException(400, "Telegram user info not available")
-
-    # Create or get web user based on Telegram user
-    username = f"tg_{tg_user['id']}"
-    user = db.query(AppUser).filter(AppUser.username == username).first()
-
-    if not user:
-        # Create new web user
-        import secrets
-        password = secrets.token_urlsafe(32)  # Random password, user logs in via Telegram
-        user = AppUser(username=username, hashed_password=create_hash(password))
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-    # Save Telegram API config for this user
-    cfg = db.query(ApiSessionConfig).filter(ApiSessionConfig.user_id == user.id).first()
-    if cfg:
-        cfg.api_id = session["api_id"]
-        cfg.phone_number = session["phone"]
-        cfg.session_name = session["service"].session_name
-    else:
-        cfg = ApiSessionConfig(
-            user_id=user.id,
-            api_id=session["api_id"],
-            phone_number=session["phone"],
-            session_name=session["service"].session_name
-        )
-        db.add(cfg)
-    db.commit()
-
-    # Disconnect Telegram service
     try:
-        await session["service"].disconnect()
-    except:
-        pass
-    auth_sessions.pop(session_id, None)
+        tg_user = session.get("tg_user")
+        if not tg_user:
+            raise HTTPException(400, "Telegram user info not available")
 
-    # Return JWT
-    access_token = create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer", "message": "Logged in successfully"}
+        username = f"tg_{tg_user['id']}"
+        user = db.query(AppUser).filter(AppUser.username == username).first()
+        if not user:
+            import secrets
+
+            password = secrets.token_urlsafe(32)
+            user = AppUser(username=username, hashed_password=create_hash(password))
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        cfg = db.query(ApiSessionConfig).filter(ApiSessionConfig.user_id == user.id).first()
+        if cfg:
+            cfg.api_id = session["api_id"]
+            cfg.phone_number = session["phone"]
+            cfg.session_name = session["session_name"]
+        else:
+            cfg = ApiSessionConfig(
+                user_id=user.id,
+                api_id=session["api_id"],
+                phone_number=session["phone"],
+                session_name=session["session_name"],
+            )
+            db.add(cfg)
+        db.commit()
+
+        access_token = create_access_token(data={"sub": user.username})
+        return {"access_token": access_token, "token_type": "bearer", "message": "Logged in successfully"}
+    finally:
+        await _release_auth_session(session_id)
 
 
 # ---------- Paginated video results ----------
@@ -829,23 +909,20 @@ async def get_videos_stats(
     }
 
 
-async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
+async def _run_scan_task(task_id: str, service: TelegramService, session_name: str, owner: str,
                          channel_id: str, media_type: str, days: Optional[int], limit: int,
-                         session_name: Optional[str] = None,
                          start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Background scan task — updates scan_tasks dict with progress/result."""
     scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Connecting..."}
     logger.info(f"[Task {task_id}] Starting scan for channel {channel_id}, session={session_name}")
     logger.info(f"[Task {task_id}] Date params: days={days}, start_date={start_date}, end_date={end_date}")
     try:
-        service = TelegramService(api_id, api_hash, phone, session_name)
         await service.connect()
         
         # Check if session is authorized
         if not await service.is_authorized():
             logger.error(f"[Task {task_id}] Session not authorized for channel {channel_id}")
             scan_tasks[task_id] = {"status": "error", "message": "Session not authorized. Please re-authenticate via /telegram/web (code/2FA)."}
-            await service.disconnect()
             return
             
         logger.info(f"[Task {task_id}] Session authorized, fetching channel...")
@@ -900,28 +977,26 @@ async def _run_scan_task(task_id: str, api_id: int, api_hash: str, phone: str,
         })
 
         logger.info(f"[Task {task_id}] Scan completed: {result.get('message', 'done')}")
-        await service.disconnect()
     except Exception as e:
         logger.exception(f"[Task {task_id}] Scan error: {e}")
         scan_tasks[task_id] = {"status": "error", "message": str(e)}
+    finally:
+        await telegram_session_manager.release(session_name, owner)
 
 
-async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: str,
+async def _run_download_task(task_id: str, service: TelegramService, session_name: str, owner: str,
                              channel_id: str, media_type: str, days: Optional[int],
                              download_path: str, limit: int, delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True,
-                             session_name: Optional[str] = None,
                              start_date: Optional[str] = None, end_date: Optional[str] = None):
     scan_tasks[task_id] = {"status": "running", "progress": 0, "message": "Preparing download...", "cancel_requested": False}
     logger.info(f"[Task {task_id}] Starting download for channel {channel_id}, session={session_name}")
     try:
-        service = TelegramService(api_id, api_hash, phone, session_name)
         await service.connect()
         
         # Check if session is authorized
         if not await service.is_authorized():
             logger.error(f"[Task {task_id}] Session not authorized for channel {channel_id}")
             scan_tasks[task_id] = {"status": "error", "message": "Session not authorized. Please re-authenticate via /telegram/web (code/2FA)."}
-            await service.disconnect()
             return
             
         logger.info(f"[Task {task_id}] Session authorized, fetching channel...")
@@ -970,7 +1045,6 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
                 "path": download_dir,
                 "message": f"Download stopped. Downloaded {result['downloaded']} files, skipped {result.get('skipped', 0)}, {result['errors']} errors"
             }
-            await service.disconnect()
             return
         scan_tasks[task_id] = {
             "status": "completed",
@@ -981,17 +1055,14 @@ async def _run_download_task(task_id: str, api_id: int, api_hash: str, phone: st
             "message": f"Downloaded {result['downloaded']} files to {display_dir}, skipped {result.get('skipped', 0)}, {result['errors']} errors"
         }
         logger.info(f"[Task {task_id}] Download completed: {scan_tasks[task_id].get('message', 'done')}")
-        await service.disconnect()
     except DownloadCancelled:
         logger.info(f"[Task {task_id}] Download cancelled by user")
         scan_tasks[task_id] = {"status": "cancelled", "message": "Download stopped by user"}
-        try:
-            await service.disconnect()
-        except Exception:
-            pass
     except Exception as e:
         logger.exception(f"[Task {task_id}] Download error: {e}")
         scan_tasks[task_id] = {"status": "error", "message": str(e)}
+    finally:
+        await telegram_session_manager.release(session_name, owner)
 
 
 # ---------- Main action endpoints ----------
@@ -1014,10 +1085,18 @@ async def start_scan(
     logger.info(f"[Scan] Payload received: channel_id={payload.channel_id}, start_date={payload.start_date}, end_date={payload.end_date}, days={payload.days}, limit={payload.limit}")
     logger.info(f"User {current_user.username} starting scan for channel {payload.channel_id}, session={cfg.session_name}")
     task_id = _make_task_id()
+    owner = f"task:{task_id}"
+    session_name = _session_name_for(phone, cfg.session_name)
+    try:
+        service = await telegram_session_manager.reserve(
+            session_name, cfg.api_id, api_hash, phone, owner
+        )
+    except SessionBusyError as exc:
+        raise HTTPException(409, "Session is busy. Wait for the active Telegram operation to finish.") from exc
     background.add_task(
-        _run_scan_task, task_id, cfg.api_id, api_hash, phone,
+        _run_scan_task, task_id, service, session_name, owner,
         payload.channel_id, payload.media_type, payload.days, payload.limit,
-        cfg.session_name, payload.start_date, payload.end_date
+        payload.start_date, payload.end_date
     )
     return {"task_id": task_id, "status": "started"}
 
@@ -1049,12 +1128,20 @@ async def start_download(
             )
 
     task_id = _make_task_id()
+    owner = f"task:{task_id}"
+    session_name = _session_name_for(phone, cfg.session_name)
+    try:
+        service = await telegram_session_manager.reserve(
+            session_name, cfg.api_id, api_hash, phone, owner
+        )
+    except SessionBusyError as exc:
+        raise HTTPException(409, "Session is busy. Wait for the active Telegram operation to finish.") from exc
     background.add_task(
-        _run_download_task, task_id, cfg.api_id, api_hash, phone,
+        _run_download_task, task_id, service, session_name, owner,
         payload.channel_id, payload.media_type, payload.days,
         payload.download_path, payload.limit,
         payload.delay_min, payload.delay_max, payload.skip_existing,
-        cfg.session_name, payload.start_date, payload.end_date
+        payload.start_date, payload.end_date
     )
     return {"task_id": task_id, "status": "started"}
 
@@ -1083,19 +1170,25 @@ async def start_download_selected(
             raise HTTPException(409, detail=f"Download already in progress for this channel (Task ID: {tid})")
 
     task_id = _make_task_id()
+    owner = f"task:{task_id}"
+    session_name = _session_name_for(phone, cfg.session_name)
+    try:
+        service = await telegram_session_manager.reserve(
+            session_name, cfg.api_id, api_hash, phone, owner
+        )
+    except SessionBusyError as exc:
+        raise HTTPException(409, "Session is busy. Wait for the active Telegram operation to finish.") from exc
     background.add_task(
-        _run_download_selected_task, task_id, cfg.api_id, api_hash, phone,
+        _run_download_selected_task, task_id, service, session_name, owner,
         payload.channel_id, payload.message_ids, payload.download_path,
         payload.delay_min, payload.delay_max, payload.skip_existing,
-        cfg.session_name
     )
     return {"task_id": task_id, "status": "started"}
 
 
-async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, phone: str,
+async def _run_download_selected_task(task_id: str, service: TelegramService, session_name: str, owner: str,
                                       channel_id: str, message_ids: List[int], download_path: str,
-                                      delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True,
-                                      session_name: Optional[str] = None):
+                                      delay_min: float = 2.0, delay_max: float = 5.0, skip_existing: bool = True):
     """Download specific files by message IDs."""
     import random
     from telethon.errors import FloodWaitError
@@ -1110,12 +1203,10 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
     logger.info(f"[Task {task_id}] Starting selected download: {len(message_ids)} files")
 
     try:
-        service = TelegramService(api_id, api_hash, phone, session_name)
         await service.connect()
 
         if not await service.is_authorized():
             scan_tasks[task_id] = {"status": "error", "message": "Session not authorized."}
-            await service.disconnect()
             return
 
         channel, topic_id = await service.get_channel(channel_id)
@@ -1254,7 +1345,9 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
                     scan_tasks[task_id]["current_file_total"] = known_total
                     scan_tasks[task_id]["current_file_percent"] = file_pct
 
-                await service.client.download_media(real_msg, file=file_path, progress_callback=file_progress)
+                await service.download_media_with_timeout(
+                    real_msg, file=file_path, progress_callback=file_progress
+                )
                 _write_selected_message_metadata(real_msg, file_path, file_name, topic_id)
                 downloaded += 1
                 completed_bytes += media_size
@@ -1280,7 +1373,7 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
                         raise DownloadCancelled()
                     real_msg = await service.client.get_messages(channel, ids=msg_id)
                     if real_msg and file_path:
-                        await service.client.download_media(real_msg, file=file_path)
+                        await service.download_media_with_timeout(real_msg, file=file_path)
                         _write_selected_message_metadata(real_msg, file_path, os.path.basename(file_path), topic_id)
                         downloaded += 1
                         completed_bytes += media_size
@@ -1307,7 +1400,6 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
             "message": f"Downloaded {downloaded} files to {display_dir}, skipped {skipped}, {errors} errors"
         }
         logger.info(f"[Task {task_id}] Selected download completed: {downloaded}/{total}")
-        await service.disconnect()
     except DownloadCancelled:
         logger.info(f"[Task {task_id}] Selected download cancelled by user")
         scan_tasks[task_id] = {
@@ -1317,13 +1409,11 @@ async def _run_download_selected_task(task_id: str, api_id: int, api_hash: str, 
             "downloaded_bytes": scan_tasks.get(task_id, {}).get("downloaded_bytes", 0),
             "total_bytes": scan_tasks.get(task_id, {}).get("total_bytes", 0),
         }
-        try:
-            await service.disconnect()
-        except Exception:
-            pass
     except Exception as e:
         logger.exception(f"[Task {task_id}] Selected download error: {e}")
         scan_tasks[task_id] = {"status": "error", "message": str(e)}
+    finally:
+        await telegram_session_manager.release(session_name, owner)
 
 
 @router.get("/api/task/{task_id}", summary="Check background task status")
