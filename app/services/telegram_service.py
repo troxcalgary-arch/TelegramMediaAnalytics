@@ -15,6 +15,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _positive_timeout_from_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+        return value if value > 0 else default
+    except ValueError:
+        return default
+
+
+DOWNLOAD_TIMEOUT_SECONDS = _positive_timeout_from_env("TG_DOWNLOAD_TIMEOUT_SECONDS", 7200.0)
+
+
 class DownloadCancelled(Exception):
     """Raised when the user requests download cancellation."""
 
@@ -32,6 +43,13 @@ class TelegramService:
         if not self.client.is_connected():
             await self.client.connect()
         return self.client.is_connected()
+
+    async def download_media_with_timeout(self, message, **kwargs):
+        """Download one media item with a configurable upper time limit."""
+        return await asyncio.wait_for(
+            self.client.download_media(message, **kwargs),
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        )
 
     async def is_authorized(self) -> bool:
         """Check if client is authorized (has valid session)"""
@@ -423,7 +441,9 @@ class TelegramService:
                     if cancel_callback and cancel_callback():
                         raise DownloadCancelled()
 
-                await self.client.download_media(real_msg, file=file_path, progress_callback=media_progress)
+                await self.download_media_with_timeout(
+                    real_msg, file=file_path, progress_callback=media_progress
+                )
                 downloaded += 1
 
                 # Write metadata .md sidecar file
@@ -472,7 +492,7 @@ class TelegramService:
                         raise DownloadCancelled()
                     real_msg = await self.client.get_messages(channel, ids=msg_id) if channel else None
                     if real_msg:
-                        await self.client.download_media(real_msg, file=file_path)
+                        await self.download_media_with_timeout(real_msg, file=file_path)
                         downloaded += 1
                         if progress_callback:
                             progress_callback(downloaded + skipped, total)
@@ -556,17 +576,12 @@ class TelegramService:
         
         full_path = os.path.join(download_path, file_name)
         
-        await self.client.download_media(message, file=full_path)
+        await self.download_media_with_timeout(message, file=full_path)
         return full_path
     
     async def disconnect(self):
-        await self.client.disconnect()
-
-def get_telegram_service():
-    """Factory for creating service"""
-    # Values are read from .env
-    api_id = int(os.getenv("TG_API_ID", "0"))
-    api_hash = os.getenv("TG_API_HASH", "")
-    phone = os.getenv("TG_PHONE", "")
-    
-    return TelegramService(api_id, api_hash, phone)
+        try:
+            if self.client.is_connected():
+                await self.client.disconnect()
+        finally:
+            self.client.session.close()

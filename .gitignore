@@ -22,6 +22,7 @@ build/
 # Telethon sessions
 *.session
 *.session-journal
+.telegram-session-process.lock
 
 # Logs
 *.log

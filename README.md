@@ -75,6 +75,20 @@ TG_PHONE=+your_phone_number
 PLACEOFPOWER_SECRET_KEY=your_jwt_secret
 ```
 
+Optional Telethon lifecycle settings:
+
+```
+TG_AUTH_TIMEOUT_SECONDS=60
+TG_AUTH_SESSION_TTL_SECONDS=600
+TG_DOWNLOAD_TIMEOUT_SECONDS=7200
+TG_DISCONNECT_TIMEOUT_SECONDS=30
+```
+
+The application must run with exactly one Uvicorn worker because Telethon stores
+each account session in a local SQLite file. Startup fails if another application
+process already owns the session-file guard. Scale Telegram work through a
+dedicated task worker and shared locking before enabling multiple web workers.
+
 Get API credentials at https://my.telegram.org
 
 ## Project Structure
